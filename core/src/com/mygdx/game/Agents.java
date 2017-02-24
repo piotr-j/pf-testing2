@@ -98,10 +98,10 @@ public class Agents extends IteratingInputSystem {
 		}
 		if (selectedId == entityId) {
 			shapes.setColor(Color.DARK_GRAY);
-			shapes.circle(tf.x, tf.y, .4f, 16);
+			shapes.circle(tf.x, tf.y, agent.boundingRadius * 1.2f, 16);
 		}
 		shapes.setColor(Color.LIGHT_GRAY);
-		shapes.circle(tf.x, tf.y, .3f, 16);
+		shapes.circle(tf.x, tf.y, agent.boundingRadius, 16);
 		v2.set(0, 1).rotateRad(agent.getOrientation()).limit(.3f);
 		shapes.setColor(Color.DARK_GRAY);
 		shapes.rectLine(tf.x, tf.y, tf.x + v2.x, tf.y + v2.y, .1f);
@@ -231,6 +231,7 @@ public class Agents extends IteratingInputSystem {
 						blendedSteering.remove(baw);
 					}
 				}
+				ai.steering.setWeight(ai.avoidance, 5);
 				ai.steering.add(followPath, 1);
 			}
 
@@ -242,7 +243,7 @@ public class Agents extends IteratingInputSystem {
 		// follow path
 	}
 
-	private void trySpawnAt (int x, int y) {
+	private void trySpawnAt (int x, int y, float size) {
 		Map.Node at = map.at(x, y);
 		if (at == null || at.type == Map.WL) return;
 		int agentId = world.create();
@@ -253,7 +254,7 @@ public class Agents extends IteratingInputSystem {
 		agent.setMaxAngularSpeed(45 * MathUtils.degreesToRadians);
 		agent.setMaxLinearAcceleration(20);
 		agent.setMaxLinearSpeed(2);
-		agent.boundingRadius = .2f;
+		agent.boundingRadius = size;
 		agent.getPosition().set(tf.x, tf.y);
 
 		AI ai = mAI.create(agentId);
@@ -270,8 +271,9 @@ public class Agents extends IteratingInputSystem {
 		MyBlendedSteering blendedSteering = new MyBlendedSteering(agent);
 
 		// radius must be large enough when compared to agents bounding radiys
-		CollisionAvoidance<Vector2> avoidance = new CollisionAvoidance<Vector2>(agent,
-			new RadiusProximity<>(agent, activeAgents, .75f));
+		CollisionAvoidance<Vector2> avoidance = new CollisionAvoidance<>(agent,
+			new RadiusProximity<>(agent, activeAgents, size * 3f));
+		ai.avoidance = avoidance;
 		blendedSteering.add(avoidance, 5);
 		LookWhereYouAreGoing<Vector2> lookWhereYouAreGoing = new LookWhereYouAreGoing<>(agent);
 		blendedSteering.add(lookWhereYouAreGoing, 1);
@@ -307,9 +309,11 @@ public class Agents extends IteratingInputSystem {
 		int y = Map.grid(tmp.y);
 		switch (keycode) {
 		case Input.Keys.Q: {
-			trySpawnAt(x, y);
-		}
-		break;
+			trySpawnAt(x, y, .2f);
+		} break;
+		case Input.Keys.W: {
+			trySpawnAt(x, y, .5f);
+		}break;
 		}
 		return false;
 	}
@@ -373,6 +377,14 @@ public class Agents extends IteratingInputSystem {
 
 		public int getCount() {
 			return list.size;
+		}
+
+		public void setWeight(SteeringBehavior behavior, float weight) {
+			for (BehaviorAndWeight<Vector2> behaviorAndWeight : list) {
+				if (behaviorAndWeight.getBehavior() == behavior) {
+					behaviorAndWeight.setWeight(weight);
+				}
+			}
 		}
 	}
 }
