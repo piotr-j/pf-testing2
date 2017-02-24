@@ -9,15 +9,20 @@ import com.badlogic.gdx.Input;
 import com.badlogic.gdx.ai.steer.Steerable;
 import com.badlogic.gdx.ai.steer.SteeringAcceleration;
 import com.badlogic.gdx.ai.steer.SteeringBehavior;
-import com.badlogic.gdx.ai.steer.behaviors.FollowPath;
+import com.badlogic.gdx.ai.steer.behaviors.*;
+import com.badlogic.gdx.ai.steer.proximities.RadiusProximity;
 import com.badlogic.gdx.ai.steer.utils.Path;
 import com.badlogic.gdx.ai.steer.utils.paths.LinePath;
+import com.badlogic.gdx.ai.utils.Location;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Circle;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
+import com.badlogic.gdx.utils.reflect.ClassReflection;
+import com.badlogic.gdx.utils.reflect.Field;
+import com.badlogic.gdx.utils.reflect.ReflectionException;
 import com.mygdx.game.components.AI;
 import com.mygdx.game.components.Agent;
 import com.mygdx.game.components.Transform;
@@ -35,6 +40,8 @@ public class Agents extends IteratingInputSystem {
 	@Wire Pathfinding pf;
 	@Wire ShapeRenderer shapes;
 
+	Array<Agent> activeAgents = new Array<>();
+
 	public Agents () {
 		super(Aspect.all(Transform.class, AI.class, Agent.class));
 	}
@@ -47,6 +54,10 @@ public class Agents extends IteratingInputSystem {
 		shapes.setProjectionMatrix(camera.combined);
 	}
 
+	@Override protected void inserted (int entityId) {
+		activeAgents.add(mAgent.get(entityId));
+	}
+
 	private Vector2 v2 = new Vector2();
 	private final SteeringAcceleration<Vector2> steeringOutput = new SteeringAcceleration<Vector2>(new Vector2());
 	@Override protected void process (int entityId) {
@@ -54,10 +65,10 @@ public class Agents extends IteratingInputSystem {
 		AI ai = mAI.get(entityId);
 		Agent agent = mAgent.get(entityId);
 
-		if (ai.behavior != null) {
+		if (ai.steering != null) {
 
 			// Calculate steering acceleration
-			ai.behavior.calculateSteering(steeringOutput);
+			ai.steering.calculateSteering(steeringOutput);
 
 			agent.getPosition().mulAdd(agent.getLinearVelocity(), world.delta);
 			agent.getLinearVelocity().mulAdd(steeringOutput.linear, world.delta).limit(agent.getMaxLinearSpeed());
@@ -91,26 +102,84 @@ public class Agents extends IteratingInputSystem {
 		}
 		shapes.setColor(Color.LIGHT_GRAY);
 		shapes.circle(tf.x, tf.y, .3f, 16);
-		v2.set(1, 0).rotateRad(agent.getOrientation()).limit(.3f);
+		v2.set(0, 1).rotateRad(agent.getOrientation()).limit(.3f);
 		shapes.setColor(Color.DARK_GRAY);
 		shapes.rectLine(tf.x, tf.y, tf.x + v2.x, tf.y + v2.y, .1f);
 		shapes.end();
+
 		shapes.begin(ShapeRenderer.ShapeType.Line);
 		shapes.setColor(Color.LIGHT_GRAY);
 		shapes.rect(tf.gx - .5f, tf.gy - .5f, agent.width, agent.height);
 
-		if (ai.behavior != null) {
-			drawDebug(ai.behavior);
+		if (ai.steering != null) {
+			drawDebug(tf, ai.steering);
 		}
 		shapes.end();
 	}
 
-	private void drawDebug (SteeringBehavior<Vector2> behavior) {
-		if (behavior instanceof FollowPath) {
+	@Override protected void removed (int entityId) {
+		activeAgents.removeValue(mAgent.get(entityId), true);
+	}
+
+	private void drawDebug (Transform tf, SteeringBehavior<Vector2> behavior) {
+		if (behavior instanceof MyBlendedSteering) {
+			MyBlendedSteering blendedSteering = (MyBlendedSteering)behavior;
+			for (int i = 0; i < blendedSteering.getCount(); i++) {
+				drawDebug(tf, blendedSteering.get(i).getBehavior());
+			}
+		} else if (behavior instanceof FollowPath) {
 			FollowPath<Vector2, LinePath.LinePathParam> fp = (FollowPath<Vector2, LinePath.LinePathParam>)behavior;
 			shapes.setColor(Color.CYAN);
 			Vector2 tp = fp.getInternalTargetPosition();
 			shapes.circle(tp.x, tp.y, .2f, 16);
+		} else if (behavior instanceof LookWhereYouAreGoing) {
+			LookWhereYouAreGoing lwyag = (LookWhereYouAreGoing)behavior;
+
+		} else if (behavior instanceof CollisionAvoidance) {
+			CollisionAvoidance ca = (CollisionAvoidance)behavior;
+			// ffs private things :/
+			try {
+				Field field = ClassReflection.getDeclaredField(CollisionAvoidance.class, "firstNeighbor");
+				field.setAccessible(true);
+				Steerable<Vector2> firstNeighbor = (Steerable<Vector2>)field.get(ca);
+				field = ClassReflection.getDeclaredField(CollisionAvoidance.class, "firstMinSeparation");
+				field.setAccessible(true);
+				float firstMinSeparation = (Float)field.get(ca);
+				field = ClassReflection.getDeclaredField(CollisionAvoidance.class, "firstDistance");
+				field.setAccessible(true);
+				float firstDistance = (Float)field.get(ca);
+				field = ClassReflection.getDeclaredField(CollisionAvoidance.class, "firstRelativePosition");
+				field.setAccessible(true);
+				Vector2 firstRelativePosition = (Vector2)field.get(ca);
+				field = ClassReflection.getDeclaredField(CollisionAvoidance.class, "firstRelativeVelocity");
+				field.setAccessible(true);
+				Vector2 firstRelativeVelocity = (Vector2)field.get(ca);
+				field = ClassReflection.getDeclaredField(CollisionAvoidance.class, "relativePosition");
+				field.setAccessible(true);
+				Vector2 relativePosition = (Vector2)field.get(ca);
+				shapes.setColor(Color.RED);
+				if (firstNeighbor != null) {
+					Vector2 fp = firstNeighbor.getPosition();
+					shapes.circle(fp.x, fp.y, .3f, 16);
+					shapes.circle(fp.x, fp.y, .35f, 16);
+					shapes.circle(fp.x, fp.y, .36f, 16);
+				}
+
+				shapes.setColor(Color.MAGENTA);
+				v2.set(relativePosition).scl(.1f);
+				shapes.line(tf.x, tf.y, tf.x + v2.x, tf.y + v2.y);
+
+			} catch (ReflectionException e) {
+				e.printStackTrace();
+			}
+			RadiusProximity proximity = (RadiusProximity)ca.getProximity();
+			float radius = proximity.getRadius();
+			shapes.setColor(Color.ORANGE);
+
+			shapes.circle(tf.x, tf.y, radius, 32);
+
+		} else if (behavior instanceof Arrive) {
+			Arrive arrive = (Arrive)behavior;
 		} else {
 			Gdx.app.log(TAG, "Not supported behaviour type " + behavior.getClass());
 		}
@@ -132,14 +201,18 @@ public class Agents extends IteratingInputSystem {
 		Transform tf = mTransform.get(selectedId);
 		pf.findPath(tf.gx, tf.gy, Map.grid(x), Map.grid(y), new Pathfinding.PFCallback() {
 			@Override public void found (Pathfinding.NodePath path) {
-				Agent agent = mAgent.get(selectedId);
+				final Agent agent = mAgent.get(selectedId);
 				final AI ai = mAI.get(selectedId);
 				ai.path = convertPath(path);
-				MyFollowPath followPath = new MyFollowPath(agent, ai.path);
+				final MyFollowPath followPath = new MyFollowPath(agent, ai.path);
 				followPath.setCallback(new MyFollowPath.Callback() {
 					@Override public void arrived () {
 						Gdx.app.log(TAG, "Arrived");
-						ai.behavior = null;
+						ai.steering.remove(followPath);
+						Location<Vector2> location = ai.arrive.getTarget();
+						location.getPosition().set(agent.getPosition());
+						location.setOrientation(agent.getOrientation());
+						ai.steering.add(ai.arrive, 1);
 					}
 				});
 				followPath
@@ -149,7 +222,16 @@ public class Agents extends IteratingInputSystem {
 					.setArrivalTolerance(0.01f)
 					.setArriveEnabled(true)
 					.setDecelerationRadius(.66f);
-				ai.behavior = followPath;
+				ai.steering.remove(ai.arrive);
+				// NOTE if we interrupt running follow path we need to remove it
+				MyBlendedSteering blendedSteering = ai.steering;
+				for (int i = blendedSteering.getCount() -1; i >= 0; i--) {
+					BlendedSteering.BehaviorAndWeight<Vector2> baw = blendedSteering.get(i);
+					if (baw.getBehavior() instanceof MyFollowPath) {
+						blendedSteering.remove(baw);
+					}
+				}
+				ai.steering.add(followPath, 1);
 			}
 
 			@Override public void notFound () {
@@ -171,10 +253,30 @@ public class Agents extends IteratingInputSystem {
 		agent.setMaxAngularSpeed(45 * MathUtils.degreesToRadians);
 		agent.setMaxLinearAcceleration(20);
 		agent.setMaxLinearSpeed(2);
-		agent.boundingRadius = .4f;
+		agent.boundingRadius = .2f;
 		agent.getPosition().set(tf.x, tf.y);
 
 		AI ai = mAI.create(agentId);
+		Location<Vector2> location = agent.newLocation();
+		location.getPosition().set(agent.getPosition());
+		location.setOrientation(agent.getOrientation());
+		Arrive<Vector2> arrive = new Arrive<>(agent, location);
+		arrive.setTimeToTarget(.15f);
+		arrive.setArrivalTolerance(.01f);
+		arrive.setDecelerationRadius(.66f);
+
+		ai.arrive = arrive;
+
+		MyBlendedSteering blendedSteering = new MyBlendedSteering(agent);
+
+		// radius must be large enough when compared to agents bounding radiys
+		CollisionAvoidance<Vector2> avoidance = new CollisionAvoidance<Vector2>(agent,
+			new RadiusProximity<>(agent, activeAgents, .75f));
+		blendedSteering.add(avoidance, 5);
+		LookWhereYouAreGoing<Vector2> lookWhereYouAreGoing = new LookWhereYouAreGoing<>(agent);
+		blendedSteering.add(lookWhereYouAreGoing, 1);
+		blendedSteering.add(arrive, 1);
+		ai.steering = blendedSteering;
 	}
 
 	private Path<Vector2, LinePath.LinePathParam> convertPath (Pathfinding.NodePath path) {
@@ -254,6 +356,23 @@ public class Agents extends IteratingInputSystem {
 
 		public interface Callback {
 			void arrived();
+		}
+	}
+
+	public static class MyBlendedSteering extends BlendedSteering<Vector2> {
+
+		/**
+		 * Creates a {@code BlendedSteering} for the specified {@code owner}, {@code maxLinearAcceleration} and
+		 * {@code maxAngularAcceleration}.
+		 *
+		 * @param owner the owner of this behavior.
+		 */
+		public MyBlendedSteering (Steerable<Vector2> owner) {
+			super(owner);
+		}
+
+		public int getCount() {
+			return list.size;
 		}
 	}
 }
