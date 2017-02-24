@@ -11,18 +11,20 @@ import com.mygdx.game.Agents;
  * Created by EvilEntity on 24/02/2017.
  */
 public class Agent extends Component implements Steerable<Vector2>  {
-	Vector2 position = new Vector2();
-	Vector2 linearVelocity = new Vector2();
-	float angularVelocity;
-	float boundingRadius;
-	float rotation;
-	boolean tagged;
+	public Vector2 position = new Vector2();
+	public Vector2 linearVelocity = new Vector2();
+	public float angularVelocity;
+	public float boundingRadius;
+	public float rotation;
+	public boolean tagged;
 
-	float maxLinearSpeed = 100;
-	float maxLinearAcceleration = 200;
-	float maxAngularSpeed = 5;
-	float maxAngularAcceleration = 10;
+	public float maxLinearSpeed = 100;
+	public float maxLinearAcceleration = 200;
+	public float maxAngularSpeed = 5;
+	public float maxAngularAcceleration = 10;
 
+	public float width = 1;
+	public float height = 1;
 
 	@Override
 	public Vector2 getPosition () {
@@ -95,7 +97,8 @@ public class Agent extends Component implements Steerable<Vector2>  {
 
 	@Override
 	public float getMaxLinearAcceleration () {
-		return maxLinearAcceleration;
+		float scale = getLinearVelocity().len()/getMaxLinearSpeed();
+		return maxLinearAcceleration * (.1f + scale * .9f);
 	}
 
 	@Override

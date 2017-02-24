@@ -19,7 +19,6 @@ import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Pool;
-import com.badlogic.gdx.utils.Timer;
 import com.mygdx.game.Map.Node;
 
 import java.util.Iterator;
@@ -31,6 +30,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 	private static final String TAG = Pathfinding.class.getSimpleName();
 	final static int PF_REQUEST = 1;
 	final static int PF_RESPONSE = 2;
+	final static int PF_RESPONSE_DEBUG = 3;
 	@Wire OrthographicCamera camera;
 	@Wire ShapeRenderer shapes;
 	@Wire Map map;
@@ -97,6 +97,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 	@Override protected void processSystem () {
 		scheduler.run(100000);
 
+		if (!enabled) return;
 
 		shapes.setProjectionMatrix(camera.combined);
 		shapes.begin(ShapeRenderer.ShapeType.Line);
@@ -118,11 +119,10 @@ public class Pathfinding extends InputSystem implements Telegraph {
 	@Override
 	public boolean handleMessage (Telegram telegram) {
 		switch (telegram.message) {
-		case PF_RESPONSE: // PathFinderQueue will call us directly, no need to register for this message
+		case PF_RESPONSE_DEBUG: { // PathFinderQueue will call us directly, no need to register for this message
 			MyPathFinderRequest pfr = (MyPathFinderRequest)telegram.extraInfo;
 			if (PathFinderRequestControl.DEBUG) {
-				@SuppressWarnings("unchecked")
-				PathFinderQueue<Node> pfQueue = (PathFinderQueue<Node>)telegram.sender;
+				@SuppressWarnings("unchecked") PathFinderQueue<Node> pfQueue = (PathFinderQueue<Node>)telegram.sender;
 				System.out.println("pfQueue.size = " + pfQueue.size() + " executionFrames = " + pfr.executionFrames);
 			}
 
@@ -134,7 +134,23 @@ public class Pathfinding extends InputSystem implements Telegraph {
 
 			// Release the request
 			requestPool.free(pfr);
-			break;
+		} break;
+		case PF_RESPONSE: {// PathFinderQueue will call us directly, no need to register for this message
+			MyPathFinderRequest pfr = (MyPathFinderRequest)telegram.extraInfo;
+			if (PathFinderRequestControl.DEBUG) {
+				@SuppressWarnings("unchecked") PathFinderQueue<Node> pfQueue = (PathFinderQueue<Node>)telegram.sender;
+				System.out.println("pfQueue.size = " + pfQueue.size() + " executionFrames = " + pfr.executionFrames);
+			}
+
+			if (pfr.pathFound) {
+				pfr.callback.found(new NodePath((NodePath)pfr.resultPath));
+			} else {
+				pfr.callback.notFound();
+			}
+
+			// Release the request
+			requestPool.free(pfr);
+		}break;
 		}
 		return true;
 	}
@@ -143,14 +159,34 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		Node from = map.at(start.x, start.y);
 		Node to = map.at(end.x, end.y);
 		if (from != null && from.type != Map.WL && to != null && to.type != Map.WL) {
+			MyPathFinderRequest pfRequest = requestPool.obtain();
+			pfRequest.startNode = from;
+			pfRequest.endNode = to;
+			pfRequest.heuristic = heuristic;
+			pfRequest.responseMessageCode = PF_RESPONSE_DEBUG;
+			MessageManager.getInstance().dispatchMessage(this, PF_REQUEST, pfRequest);
+		}
+	}
 
+	public void findPath(int sx, int sy, int ex, int ey, PFCallback callback) {
+		Node from = map.at(sx, sy);
+		Node to = map.at(ex, ey);
+		if (from != null && from.type != Map.WL && to != null && to.type != Map.WL) {
 			MyPathFinderRequest pfRequest = requestPool.obtain();
 			pfRequest.startNode = from;
 			pfRequest.endNode = to;
 			pfRequest.heuristic = heuristic;
 			pfRequest.responseMessageCode = PF_RESPONSE;
+			pfRequest.callback = callback;
 			MessageManager.getInstance().dispatchMessage(this, PF_REQUEST, pfRequest);
+		} else {
+			callback.notFound();
 		}
+	}
+
+	public interface PFCallback {
+		void found(NodePath path);
+		void notFound();
 	}
 
 	@Override protected void touchDownLeft (float x, float y) {
@@ -179,10 +215,6 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		return super.keyDown(keycode);
 	}
 
-	@Override protected boolean checkProcessing () {
-		return enabled;
-	}
-
 	public static class ManhattanDistance implements Heuristic<Node> {
 		@Override
 		public float estimate (Node node, Node endNode) {
@@ -194,6 +226,10 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		public final Array<Node> nodes = new Array<Node>();
 
 		public NodePath () {}
+
+		public NodePath (NodePath path) {
+			nodes.addAll(path.nodes);
+		}
 
 		@Override public void clear () {
 			nodes.clear();
@@ -241,6 +277,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		PathSmootherRequest<Node, Vector2> pathSmootherRequest;
 		boolean smoothEnabled;
 		boolean smoothFinished;
+		public PFCallback callback;
 
 		public MyPathFinderRequest () {
 			this.resultPath = new NodePath();
@@ -269,10 +306,11 @@ public class Pathfinding extends InputSystem implements Telegraph {
 
 		@Override
 		public void reset () {
-			this.startNode = null;
-			this.endNode = null;
-			this.heuristic = null;
-			this.client = null;
+			startNode = null;
+			endNode = null;
+			heuristic = null;
+			client = null;
+			callback = null;
 		}
 	}
 

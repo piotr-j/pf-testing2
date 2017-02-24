@@ -41,6 +41,7 @@ public class MyGdxGame extends ApplicationAdapter {
 		config.setSystem(new Gods());
 		config.setSystem(Map.class);
 		config.setSystem(Pathfinding.class);
+		config.setSystem(Agents.class);
 //		config.setSystem(TransformRenderer.class);
 //		config.setSystem(Shapes.class);
 
@@ -48,7 +49,7 @@ public class MyGdxGame extends ApplicationAdapter {
 
 		InputMultiplexer multiplexer = new InputMultiplexer();
 		for (BaseSystem baseSystem : world.getSystems()) {
-			if (baseSystem instanceof InputSystem) {
+			if (baseSystem instanceof InputProcessor) {
 				multiplexer.addProcessor((InputProcessor)baseSystem);
 			}
 		}
