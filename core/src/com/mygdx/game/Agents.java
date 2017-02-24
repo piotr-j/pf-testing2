@@ -6,6 +6,7 @@ import com.artemis.annotations.Wire;
 import com.artemis.utils.IntBag;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.ai.steer.Steerable;
 import com.badlogic.gdx.ai.steer.SteeringAcceleration;
 import com.badlogic.gdx.ai.steer.SteeringBehavior;
 import com.badlogic.gdx.ai.steer.behaviors.FollowPath;
@@ -132,9 +133,15 @@ public class Agents extends IteratingInputSystem {
 		pf.findPath(tf.gx, tf.gy, Map.grid(x), Map.grid(y), new Pathfinding.PFCallback() {
 			@Override public void found (Pathfinding.NodePath path) {
 				Agent agent = mAgent.get(selectedId);
-				AI ai = mAI.get(selectedId);
+				final AI ai = mAI.get(selectedId);
 				ai.path = convertPath(path);
-				FollowPath<Vector2, LinePath.LinePathParam> followPath = new FollowPath<>(agent, ai.path);
+				MyFollowPath followPath = new MyFollowPath(agent, ai.path);
+				followPath.setCallback(new MyFollowPath.Callback() {
+					@Override public void arrived () {
+						Gdx.app.log(TAG, "Arrived");
+						ai.behavior = null;
+					}
+				});
 				followPath
 					.setTimeToTarget(0.15f)
 					.setPathOffset(.3f)
@@ -213,5 +220,40 @@ public class Agents extends IteratingInputSystem {
 		outVector.x = -(float)Math.sin(angle);
 		outVector.y = (float)Math.cos(angle);
 		return outVector;
+	}
+
+	public static class MyFollowPath extends FollowPath<Vector2, LinePath.LinePathParam> {
+		private Callback callback;
+		public MyFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path) {
+			super(owner, path);
+		}
+
+		public MyFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset) {
+			super(owner, path, pathOffset);
+		}
+
+		public MyFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset,
+			float predictionTime) {
+			super(owner, path, pathOffset, predictionTime);
+		}
+
+		@Override protected SteeringAcceleration<Vector2> calculateRealSteering (SteeringAcceleration<Vector2> steering) {
+			steering = super.calculateRealSteering(steering);
+			if (steering.isZero()) {
+				if (callback != null) {
+					callback.arrived();
+				}
+			}
+			return steering;
+		}
+
+		public MyFollowPath setCallback (Callback callback) {
+			this.callback = callback;
+			return this;
+		}
+
+		public interface Callback {
+			void arrived();
+		}
 	}
 }
