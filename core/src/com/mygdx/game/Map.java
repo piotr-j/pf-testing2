@@ -154,6 +154,7 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 			for (int y = 0; y < MAP_HEIGHT; y++) {
 				int index = index(x, y);
 				Node from = nodes[index];
+				from.connections.clear();
 				if (from.type == WL) continue;
 				if (notWall(x - 1, y)) {
 					from.connections.add(new NodeConnection(from, at(x - 1, y)));
