@@ -270,19 +270,21 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 
 	private void print () {
 		System.out.println("\tprivate static int[][] MAP = { // [y][x]");
-		for (int x = MAP_WIDTH -1; x >= 0; x--) {
+
+		for (int y = MAP_HEIGHT - 1; y >= 0; y--) {
 			System.out.print("\t\t{");
-			for (int y = 0; y < MAP_HEIGHT; y++) {
+				for (int x = 0; x < MAP_WIDTH; x++) {
 				int type = at(x, y).type;
 				switch (type) {
 				case WL: {
 					System.out.print("WL, ");
-				}
-				break;
+				} break;
 				case __: {
 					System.out.print("__, ");
-				}
-				break;
+				} break;
+				case DR: {
+					System.out.print("DR, ");
+				} break;
 				}
 			}
 			System.out.println("},");
