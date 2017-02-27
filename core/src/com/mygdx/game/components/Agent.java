@@ -25,6 +25,7 @@ public class Agent extends Component implements Steerable<Vector2>  {
 
 	public float width = 1;
 	public float height = 1;
+	public int clearance = 1;
 
 	@Override
 	public Vector2 getPosition () {

@@ -199,9 +199,9 @@ public class Agents extends IteratingInputSystem {
 		// go to spot?
 		// find path
 		Transform tf = mTransform.get(selectedId);
-		pf.findPath(tf.gx, tf.gy, Map.grid(x), Map.grid(y), new Pathfinding.PFCallback() {
+		final Agent agent = mAgent.get(selectedId);
+		pf.findPath(tf.gx, tf.gy, Map.grid(x), Map.grid(y), agent.clearance, new Pathfinding.PFCallback() {
 			@Override public void found (Pathfinding.NodePath path) {
-				final Agent agent = mAgent.get(selectedId);
 				final AI ai = mAI.get(selectedId);
 				ai.path = convertPath(path);
 				final MyFollowPath followPath = new MyFollowPath(agent, ai.path);

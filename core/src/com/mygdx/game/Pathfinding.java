@@ -7,7 +7,6 @@ import com.badlogic.gdx.ai.msg.MessageManager;
 import com.badlogic.gdx.ai.msg.Telegram;
 import com.badlogic.gdx.ai.msg.Telegraph;
 import com.badlogic.gdx.ai.pfa.*;
-import com.badlogic.gdx.ai.pfa.indexed.IndexedAStarPathFinder;
 import com.badlogic.gdx.ai.sched.LoadBalancingScheduler;
 import com.badlogic.gdx.ai.utils.Collision;
 import com.badlogic.gdx.ai.utils.Ray;
@@ -20,6 +19,7 @@ import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Pool;
 import com.mygdx.game.Map.Node;
+import com.mygdx.game.pfa.*;
 
 import java.util.Iterator;
 
@@ -37,11 +37,10 @@ public class Pathfinding extends InputSystem implements Telegraph {
 
 
 	NodePath activePath;
-//	NodePath workPath;
 
 	boolean isActivePathSmoothed;
 	ManhattanDistance heuristic;
-	IndexedAStarPathFinder<Node> pathFinder;
+	ClearanceAStarPathFinder<Node> pathFinder;
 	PathSmoother<Node, Vector2> pathSmoother;
 
 	Pool<MyPathFinderRequest> requestPool;
@@ -49,7 +48,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 	LoadBalancingScheduler scheduler;
 
 	boolean smooth = false;
-	boolean enabled = false;
+	int debugClearance = 0;
 
 	@Override protected void initialize () {
 		while (true) {
@@ -73,7 +72,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 
 		activePath = new NodePath();
 		heuristic = new ManhattanDistance();
-		pathFinder = new IndexedAStarPathFinder<>(map, true);
+		pathFinder = new ClearanceAStarPathFinder<>(map, true);
 		pathSmoother = new PathSmoother<>(new CollisionDetector(map));
 
 		requestPool = new Pool<MyPathFinderRequest>() {
@@ -96,7 +95,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 	@Override protected void processSystem () {
 		scheduler.run(100000);
 
-		if (!enabled) return;
+		if (debugClearance == 0) return;
 
 		shapes.setProjectionMatrix(camera.combined);
 		shapes.begin(ShapeRenderer.ShapeType.Line);
@@ -156,28 +155,30 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		Node from = map.at(start.x, start.y);
 		Node to = map.at(end.x, end.y);
 		if (from != null && from.type != Map.WL && to != null && to.type != Map.WL) {
-			MyPathFinderRequest pfRequest = requestPool.obtain();
-			pfRequest.startNode = from;
-			pfRequest.endNode = to;
-			pfRequest.heuristic = heuristic;
-			pfRequest.responseMessageCode = PF_RESPONSE_DEBUG;
-			pfRequest.smoothEnabled = smooth;
-			MessageManager.getInstance().dispatchMessage(this, PF_REQUEST, pfRequest);
+			MyPathFinderRequest pfr = requestPool.obtain();
+			pfr.startNode = from;
+			pfr.endNode = to;
+			pfr.heuristic = heuristic;
+			pfr.responseMessageCode = PF_RESPONSE_DEBUG;
+			pfr.smoothEnabled = smooth;
+			pfr.clearance = debugClearance;
+			MessageManager.getInstance().dispatchMessage(this, PF_REQUEST, pfr);
 		}
 	}
 
-	public void findPath(int sx, int sy, int ex, int ey, PFCallback callback) {
+	public void findPath(int sx, int sy, int ex, int ey, int clearance, PFCallback callback) {
 		Node from = map.at(sx, sy);
 		Node to = map.at(ex, ey);
 		if (from != null && from.type != Map.WL && to != null && to.type != Map.WL) {
-			MyPathFinderRequest pfRequest = requestPool.obtain();
-			pfRequest.startNode = from;
-			pfRequest.endNode = to;
-			pfRequest.heuristic = heuristic;
-			pfRequest.responseMessageCode = PF_RESPONSE;
-			pfRequest.callback = callback;
-			pfRequest.smoothEnabled = smooth;
-			MessageManager.getInstance().dispatchMessage(this, PF_REQUEST, pfRequest);
+			MyPathFinderRequest pfr = requestPool.obtain();
+			pfr.startNode = from;
+			pfr.endNode = to;
+			pfr.heuristic = heuristic;
+			pfr.responseMessageCode = PF_RESPONSE;
+			pfr.callback = callback;
+			pfr.smoothEnabled = smooth;
+			pfr.clearance = clearance;
+			MessageManager.getInstance().dispatchMessage(this, PF_REQUEST, pfr);
 		} else {
 			callback.notFound();
 		}
@@ -189,13 +190,13 @@ public class Pathfinding extends InputSystem implements Telegraph {
 	}
 
 	@Override protected void touchDownLeft (float x, float y) {
-		if (!enabled) return;
+		if (debugClearance == 0) return;
 		start.set(Map.grid(x), Map.grid(y));
 		findPath();
 	}
 
 	@Override protected void touchDownRight (float x, float y) {
-		if (!enabled) return;
+		if (debugClearance == 0) return;
 		end.set(Map.grid(x), Map.grid(y));
 		findPath();
 	}
@@ -203,12 +204,27 @@ public class Pathfinding extends InputSystem implements Telegraph {
 	@Override public boolean keyDown (int keycode) {
 		switch (keycode) {
 		case Input.Keys.F5: {
-			enabled = !enabled;
-			Gdx.app.log(TAG, "Debug " + enabled);
+			debugClearance++;
+			if (debugClearance > Map.MAX_CLEARANCE) {
+				debugClearance = 0;
+			}
+			map.drawClearance = debugClearance;
+			Gdx.app.log(TAG, "Debug clearance " + debugClearance);
+			findPath();
 		} break;
 		case Input.Keys.F6: {
+			debugClearance--;
+			if (debugClearance < 0) {
+				debugClearance = Map.MAX_CLEARANCE;
+			}
+			map.drawClearance = debugClearance;
+			Gdx.app.log(TAG, "Debug clearance " + debugClearance);
+			findPath();
+		} break;
+		case Input.Keys.F7: {
 			smooth = !smooth;
 			Gdx.app.log(TAG, "smooth " + smooth);
+			findPath();
 		} break;
 		}
 		return super.keyDown(keycode);
@@ -277,7 +293,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		}
 	}
 
-	protected static class MyPathFinderRequest extends PathFinderRequest<Node> implements Pool.Poolable {
+	protected static class MyPathFinderRequest extends ClearancePathFinderRequest<Node> implements Pool.Poolable {
 		PathSmootherRequest<Node, Vector2> pathSmootherRequest;
 		boolean smoothEnabled;
 		boolean smoothFinished;

@@ -4,7 +4,6 @@ import com.artemis.annotations.Wire;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.ai.pfa.Connection;
-import com.badlogic.gdx.ai.pfa.indexed.IndexedGraph;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
@@ -16,9 +15,12 @@ import com.badlogic.gdx.utils.Array;
 /**
  * Created by EvilEntity on 23/02/2017.
  */
-public class Map extends InputSystem implements IndexedGraph<Map.Node> {
+public class Map extends InputSystem implements com.mygdx.game.pfa.ClearanceIndexedGraph<Map.Node> {
+	private final static String TAG = Map.class.getSimpleName();
+
 	public final static int MAP_WIDTH = 25;
 	public final static int MAP_HEIGHT = 19;
+	public final static int MAX_CLEARANCE = 3;
 	public final static int __ = 0; // EMPTY
 	public final static int WL = 1; // WALL
 	public final static int DR = 2; // DOOR
@@ -60,7 +62,8 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 		rebuild();
 	}
 
-	boolean drawConnections = false;
+	boolean drawDebug = false;
+	int drawClearance = 0;
 	Vector2 v2 = new Vector2();
 	@Override protected void processSystem () {
 		shapes.setProjectionMatrix(camera.combined);
@@ -104,14 +107,14 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 		shapes.rect(x, y, 1, 1);
 		shapes.end();
 
-		if (drawConnections) {
+		if (drawDebug && drawClearance != 0) {
 			shapes.begin(ShapeRenderer.ShapeType.Line);
 			shapes.setColor(Color.ORANGE);
 			for (int index = 0; index < MAP_WIDTH * MAP_HEIGHT; index++) {
 				Node from = nodes[index];
-				float cl = (from.clearance-1)/4f;
+				float cl = (from.clearance + 0f)/MAX_CLEARANCE;
 				shapes.setColor(1-cl, cl, 0, 1f);
-				for (Connection<Node> connection : from.connections) {
+				for (Connection<Node> connection : from.connections(drawClearance, out)) {
 					Node to = connection.getToNode();
 					v2.set(to.x, to.y).sub(from.x, from.y).limit(.45f);
 					shapes.line(from.x, from.y, from.x + v2.x, from.y + v2.y);
@@ -138,13 +141,24 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 			print();
 		} break;
 		case Input.Keys.F1: {
-			drawConnections = !drawConnections;
+			drawDebug = !drawDebug;
+			Gdx.app.log(TAG, "Draw debug " + drawDebug);
 		} break;
 		case Input.Keys.F2: {
-			drawConnections = !drawConnections;
+			drawClearance++;
+			if (drawClearance > MAX_CLEARANCE) {
+				drawClearance = 0;
+			}
+			drawDebug = drawClearance != 0;
+			Gdx.app.log(TAG, "Clearance " + drawClearance);
 		} break;
 		case Input.Keys.F3: {
-			drawConnections = !drawConnections;
+			drawClearance--;
+			if (drawClearance < 0) {
+				drawClearance = MAX_CLEARANCE;
+			}
+			drawDebug = drawClearance != 0;
+			Gdx.app.log(TAG, "Clearance " + drawClearance);
 		} break;
 		}
 		return super.keyDown(keycode);
@@ -160,43 +174,10 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 	private int[][] clearOffsets = {
 		{0, 1, 1, 0, 1, 1}, // 2x2
 		{0, 2, 1, 2, 2, 2, 2, 1, 2, 0}, // 3x3
-		{0, 3, 1, 3, 2, 3, 3, 3, 3, 2, 3, 1, 3, 0}, // 4x4
-		{0, 4, 1, 4, 2, 4, 3, 4, 4, 4, 4, 3, 4, 2, 4, 1, 4, 0}, // 5x5
+//		{0, 3, 1, 3, 2, 3, 3, 3, 3, 2, 3, 1, 3, 0}, // 4x4
+//		{0, 4, 1, 4, 2, 4, 3, 4, 4, 4, 4, 3, 4, 2, 4, 1, 4, 0}, // 5x5
 	};
 	private void rebuild () {
-		// connections
-		for (int x = 0; x < MAP_WIDTH; x++) {
-			for (int y = 0; y < MAP_HEIGHT; y++) {
-				int index = index(x, y);
-				Node from = nodes[index];
-				from.connections.clear();
-				if (from.type == WL) continue;
-				if (notWall(x - 1, y)) {
-					from.connections.add(new NodeConnection(from, at(x - 1, y)));
-				}
-				if (notWall(x + 1, y)) {
-					from.connections.add(new NodeConnection(from, at(x + 1, y)));
-				}
-				if (notWall(x, y - 1)) {
-					from.connections.add(new NodeConnection(from, at(x, y - 1)));
-				}
-				if (notWall(x, y + 1)) {
-					from.connections.add(new NodeConnection(from, at(x, y + 1)));
-				}
-				if (notWall(x - 1, y - 1) && notWall(x - 1, y) && notWall(x, y - 1)) {
-					from.connections.add(new NodeConnection(from, at(x - 1, y - 1)));
-				}
-				if (notWall(x - 1, y + 1) && notWall(x - 1, y) && notWall(x, y + 1)) {
-					from.connections.add(new NodeConnection(from, at(x - 1, y + 1)));
-				}
-				if (notWall(x + 1, y - 1) && notWall(x + 1, y) && notWall(x, y - 1)) {
-					from.connections.add(new NodeConnection(from, at(x + 1, y - 1)));
-				}
-				if (notWall(x + 1, y + 1) && notWall(x + 1, y) && notWall(x, y + 1)) {
-					from.connections.add(new NodeConnection(from, at(x + 1, y + 1)));
-				}
-			}
-		}
 		// clearance
 		for (int x = 0; x < MAP_WIDTH; x++) {
 			for (int y = 0; y < MAP_HEIGHT; y++) {
@@ -207,6 +188,39 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 					continue;
 				}
 				updateClearance(node);
+			}
+		}
+		// connections
+		for (int x = 0; x < MAP_WIDTH; x++) {
+			for (int y = 0; y < MAP_HEIGHT; y++) {
+				int index = index(x, y);
+				Node from = nodes[index];
+				from.connections.clear();
+				if (from.type == WL) continue;
+				if (notWall(x - 1, y)) {
+					from.add(new NodeConnection(from, at(x - 1, y)));
+				}
+				if (notWall(x + 1, y)) {
+					from.add(new NodeConnection(from, at(x + 1, y)));
+				}
+				if (notWall(x, y - 1)) {
+					from.add(new NodeConnection(from, at(x, y - 1)));
+				}
+				if (notWall(x, y + 1)) {
+					from.add(new NodeConnection(from, at(x, y + 1)));
+				}
+				if (notWall(x - 1, y - 1) && notWall(x - 1, y) && notWall(x, y - 1)) {
+					from.add(new NodeConnection(from, at(x - 1, y - 1)));
+				}
+				if (notWall(x - 1, y + 1) && notWall(x - 1, y) && notWall(x, y + 1)) {
+					from.add(new NodeConnection(from, at(x - 1, y + 1)));
+				}
+				if (notWall(x + 1, y - 1) && notWall(x + 1, y) && notWall(x, y - 1)) {
+					from.add(new NodeConnection(from, at(x + 1, y - 1)));
+				}
+				if (notWall(x + 1, y + 1) && notWall(x + 1, y) && notWall(x, y + 1)) {
+					from.add(new NodeConnection(from, at(x + 1, y + 1)));
+				}
 			}
 		}
 	}
@@ -266,17 +280,22 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 	}
 
 	@Override public Array<Connection<Node>> getConnections (Node fromNode) {
-		return fromNode.connection();
+		return getConnections(fromNode, 1);
+	}
+
+	private static Array<Connection<Node>> out = new Array<>();
+	@Override public Array<Connection<Node>> getConnections (Node fromNode, int clearance) {
+		return fromNode.connections(clearance, out);
 	}
 
 	public static class Node {
-		public Array<Connection<Node>> connections = new Array<Connection<Node>>();
+		public Array<NodeConnection> connections = new Array<>();
 		public final int index;
 		public final int x;
 		public final int y;
 		public int type;
 		// larger value means larger entity can move on this tile
-		public int clearance = 1;
+		public int clearance;
 
 		public Node (int index, int x, int y, int type) {
 			this.index = index;
@@ -285,14 +304,25 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 			this.type = type;
 		}
 
-		public Array<Connection<Node>> connection () {
-			return connections;
+		public Array<Connection<Node>> connections (int clearance, Array<Connection<Node>> out) {
+			out.clear();
+			for (NodeConnection connection : connections) {
+				if (connection.clearance >= clearance) {
+					out.add(connection);
+				}
+			}
+			return out;
+		}
+
+		public void add (NodeConnection connection) {
+			connections.add(connection);
 		}
 	}
 
 	public static class NodeConnection implements Connection<Node> {
 		Node from;
 		Node to;
+		int clearance;
 		float cost;
 		public NodeConnection (Node from, Node to) {
 			this.from = from;
@@ -301,6 +331,7 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 			if (to.x == from.x || to.y == from.y) {
 				cost = 1;
 			}
+			clearance = Math.min(from.clearance, to.clearance);
 		}
 
 		@Override public float getCost () {
