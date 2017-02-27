@@ -58,7 +58,8 @@ public class Agents extends IteratingInputSystem {
 		activeAgents.add(mAgent.get(entityId));
 	}
 
-	private Vector2 v2 = new Vector2();
+	private Vector2 v2_1 = new Vector2();
+	private Vector2 v2_2 = new Vector2();
 	private final SteeringAcceleration<Vector2> steeringOutput = new SteeringAcceleration<Vector2>(new Vector2());
 	@Override protected void process (int entityId) {
 		Transform tf = mTransform.get(entityId);
@@ -100,6 +101,71 @@ public class Agents extends IteratingInputSystem {
 			shapes.setColor(Color.FIREBRICK);
 			shapes.circle(tf.x, tf.y, agent.boundingRadius * 1.2f, 16);
 		}
+//		agent.setOrientation(agent.getOrientation() + world.delta * MathUtils.PI * .25f);
+
+		v2_1.set(0, 1).rotateRad(agent.getOrientation()).limit(.3f);
+		v2_2.set(1, 1).rotateRad(agent.getOrientation()).limit(.3f);
+
+		shapes.setColor(Color.CYAN);
+		float angle = agent.getOrientation() * MathUtils.radDeg;
+		float rAngle = 0;
+		rAngle = angle + 180;
+		rAngle = (int)((rAngle + 22.5f) / 45) * 45;
+		rAngle -= 180;
+		int iAngle = (int)rAngle;
+//		Gdx.app.log(TAG, "" + rAngle);
+		float realAngle = 0;
+		switch (iAngle) {
+		case -180: {
+			realAngle = 0;
+//			Gdx.app.log(TAG, "" + iAngle);
+		} break;
+		case -135: {
+			realAngle = -45;
+//			Gdx.app.log(TAG, "" + iAngle);
+		} break;
+		case -90: {
+			realAngle = 0;
+//			Gdx.app.log(TAG, "" + iAngle);
+		} break;
+		case -45: {
+			realAngle = -45;
+//			Gdx.app.log(TAG, "" + iAngle);
+		} break;
+		case 0: {
+			realAngle = 0;
+//			Gdx.app.log(TAG, "" + iAngle);
+		} break;
+		case 45: {
+			realAngle = -45;
+//			Gdx.app.log(TAG, "" + iAngle);
+		} break;
+		case 90: {
+			realAngle = 0;
+//			Gdx.app.log(TAG, "" + iAngle);
+		} break;
+		case 135: {
+			realAngle = -45;
+//			Gdx.app.log(TAG, "" + iAngle);
+		} break;
+		case 180: {
+			realAngle = 0;
+//			Gdx.app.log(TAG, "" + iAngle);
+		} break;
+		default: {
+			Gdx.app.log(TAG, "" + iAngle);
+		}
+		}
+		realAngle = 0;
+
+		shapes.rect(
+			tf.x - .3f, tf.y - .3f,
+			.3f, .3f,
+			agent.clearance - .4f, agent.clearance - .4f,
+			1, 1,
+//			agent.getOrientation() * MathUtils.radDeg
+			realAngle
+		);
 
 		switch (agent.clearance) {
 		case 1: {
@@ -113,9 +179,8 @@ public class Agents extends IteratingInputSystem {
 		}break;
 		}
 		shapes.circle(tf.x, tf.y, agent.boundingRadius, 16);
-		v2.set(0, 1).rotateRad(agent.getOrientation()).limit(.3f);
 		shapes.setColor(Color.DARK_GRAY);
-		shapes.rectLine(tf.x, tf.y, tf.x + v2.x, tf.y + v2.y, .1f);
+		shapes.rectLine(tf.x, tf.y, tf.x + v2_1.x, tf.y + v2_1.y, .1f);
 		shapes.end();
 
 		shapes.begin(ShapeRenderer.ShapeType.Line);
@@ -177,8 +242,8 @@ public class Agents extends IteratingInputSystem {
 				}
 
 				shapes.setColor(Color.MAGENTA);
-				v2.set(relativePosition).scl(.1f);
-				shapes.line(tf.x, tf.y, tf.x + v2.x, tf.y + v2.y);
+				v2_1.set(relativePosition).scl(.1f);
+				shapes.line(tf.x, tf.y, tf.x + v2_1.x, tf.y + v2_1.y);
 
 			} catch (ReflectionException e) {
 				e.printStackTrace();

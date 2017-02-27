@@ -168,7 +168,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 
 	public void findPath(int sx, int sy, int ex, int ey, int clearance, PFCallback callback) {
 		Node from = map.at(sx, sy);
-		Node to = map.at(ex, ey);
+		Node to = findTarget(ex, ey, clearance);
 		if (from != null && from.type != Map.WL && to != null && to.type != Map.WL) {
 			MyPathFinderRequest pfr = requestPool.obtain();
 			pfr.startNode = from;
@@ -182,6 +182,33 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		} else {
 			callback.notFound();
 		}
+	}
+
+	private Node findTarget (int tx, int ty, int clearance) {
+		Node node = map.at(tx, ty);
+		if (node.clearance >= clearance) return node;
+		if (clearance > 1) {
+			node = map.at(tx - 1, ty);
+			if (node.clearance >= clearance) return node;
+			node = map.at(tx, ty - 1);
+			if (node.clearance >= clearance) return node;
+			node = map.at(tx - 1, ty - 1);
+			if (node.clearance >= clearance) return node;
+
+			if (clearance > 2) {
+				node = map.at(tx - 2, ty);
+				if (node.clearance >= clearance) return node;
+				node = map.at(tx, ty - 2);
+				if (node.clearance >= clearance) return node;
+				node = map.at(tx - 2, ty - 1);
+				if (node.clearance >= clearance) return node;
+				node = map.at(tx - 1, ty - 2);
+				if (node.clearance >= clearance) return node;
+				node = map.at(tx - 2, ty - 2);
+				if (node.clearance >= clearance) return node;
+			}
+		}
+		return null;
 	}
 
 	public interface PFCallback {

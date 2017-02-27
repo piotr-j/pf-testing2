@@ -40,6 +40,8 @@ public class Agent extends Component implements Steerable<Vector2>  {
 	@Override
 	public void setOrientation (float orientation) {
 		rotation = orientation * MathUtils.radiansToDegrees;
+		while (rotation > 180) rotation -= 360;
+		while (rotation < -180) rotation += 360;
 	}
 
 	@Override
