@@ -57,7 +57,7 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 				nodes[index] = new Node(index, x, y, MAP[index(x, MAP_HEIGHT - y - 1)]);
 			}
 		}
-		rebuildConnection();
+		rebuild();
 	}
 
 	boolean drawConnections = false;
@@ -109,6 +109,8 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 			shapes.setColor(Color.ORANGE);
 			for (int index = 0; index < MAP_WIDTH * MAP_HEIGHT; index++) {
 				Node from = nodes[index];
+				float cl = (from.clearance-1)/4f;
+				shapes.setColor(1-cl, cl, 0, 1f);
 				for (Connection<Node> connection : from.connections) {
 					Node to = connection.getToNode();
 					v2.set(to.x, to.y).sub(from.x, from.y).limit(.45f);
@@ -138,6 +140,12 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 		case Input.Keys.F1: {
 			drawConnections = !drawConnections;
 		} break;
+		case Input.Keys.F2: {
+			drawConnections = !drawConnections;
+		} break;
+		case Input.Keys.F3: {
+			drawConnections = !drawConnections;
+		} break;
 		}
 		return super.keyDown(keycode);
 	}
@@ -146,10 +154,17 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 		Node at = at(x, y);
 		if (at == null) return;
 		at.type = type;
-		rebuildConnection();
+		rebuild();
 	}
 
-	private void rebuildConnection () {
+	private int[][] clearOffsets = {
+		{0, 1, 1, 0, 1, 1}, // 2x2
+		{0, 2, 1, 2, 2, 2, 2, 1, 2, 0}, // 3x3
+		{0, 3, 1, 3, 2, 3, 3, 3, 3, 2, 3, 1, 3, 0}, // 4x4
+		{0, 4, 1, 4, 2, 4, 3, 4, 4, 4, 4, 3, 4, 2, 4, 1, 4, 0}, // 5x5
+	};
+	private void rebuild () {
+		// connections
 		for (int x = 0; x < MAP_WIDTH; x++) {
 			for (int y = 0; y < MAP_HEIGHT; y++) {
 				int index = index(x, y);
@@ -182,6 +197,37 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 				}
 			}
 		}
+		// clearance
+		for (int x = 0; x < MAP_WIDTH; x++) {
+			for (int y = 0; y < MAP_HEIGHT; y++) {
+				int index = index(x, y);
+				Node node = nodes[index];
+				if (node.type == WL) {
+					node.clearance = 0;
+					continue;
+				}
+				updateClearance(node);
+			}
+		}
+	}
+
+	private void updateClearance (Node node) {
+		// expand up and right, till we find a blocked tile
+		node.clearance = 1;
+		for (int[] offsets : clearOffsets) {
+			for (int i = 0; i < offsets.length; i += 2) {
+				int ox = offsets[i];
+				int oy = offsets[i + 1];
+				if (isWall(node.x + ox, node.y + oy)) {
+					return;
+				}
+			}
+			node.clearance++;
+		}
+	}
+
+	private boolean isWall(int x, int y) {
+		return (x < MAP_WIDTH && y < MAP_HEIGHT && x >= 0 && y >= 0 && at(x, y).type == WL);
 	}
 
 	boolean notWall(int x, int y) {
@@ -229,6 +275,8 @@ public class Map extends InputSystem implements IndexedGraph<Map.Node> {
 		public final int x;
 		public final int y;
 		public int type;
+		// larger value means larger entity can move on this tile
+		public int clearance = 1;
 
 		public Node (int index, int x, int y, int type) {
 			this.index = index;

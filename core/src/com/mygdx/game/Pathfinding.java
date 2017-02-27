@@ -203,13 +203,13 @@ public class Pathfinding extends InputSystem implements Telegraph {
 
 	@Override public boolean keyDown (int keycode) {
 		switch (keycode) {
-		case Input.Keys.F2: {
-			smooth = !smooth;
-			Gdx.app.log(TAG, "smooth " + smooth);
-		} break;
-		case Input.Keys.F3: {
+		case Input.Keys.F5: {
 			enabled = !enabled;
 			Gdx.app.log(TAG, "Debug " + enabled);
+		} break;
+		case Input.Keys.F6: {
+			smooth = !smooth;
+			Gdx.app.log(TAG, "smooth " + smooth);
 		} break;
 		}
 		return super.keyDown(keycode);
