@@ -97,10 +97,21 @@ public class Agents extends IteratingInputSystem {
 			}
 		}
 		if (selectedId == entityId) {
-			shapes.setColor(Color.DARK_GRAY);
+			shapes.setColor(Color.FIREBRICK);
 			shapes.circle(tf.x, tf.y, agent.boundingRadius * 1.2f, 16);
 		}
-		shapes.setColor(Color.LIGHT_GRAY);
+
+		switch (agent.clearance) {
+		case 1: {
+			shapes.setColor(Color.LIGHT_GRAY);
+		}break;
+		case 2: {
+			shapes.setColor(Color.DARK_GRAY);
+		}break;
+		case 3: {
+			shapes.setColor(Color.BLACK);
+		}break;
+		}
 		shapes.circle(tf.x, tf.y, agent.boundingRadius, 16);
 		v2.set(0, 1).rotateRad(agent.getOrientation()).limit(.3f);
 		shapes.setColor(Color.DARK_GRAY);
@@ -243,9 +254,14 @@ public class Agents extends IteratingInputSystem {
 		// follow path
 	}
 
-	private void trySpawnAt (int x, int y, float size) {
+	private void trySpawnAt (int x, int y, int size) {
 		Map.Node at = map.at(x, y);
 		if (at == null || at.type == Map.WL) return;
+		IntBag entityIds = getEntityIds();
+		for (int i = 0; i < entityIds.size(); i++) {
+			Transform tf = mTransform.get(entityIds.get(i));
+			if (tf.gx == x && tf.gy == y) return;
+		}
 		int agentId = world.create();
 		Transform tf = mTransform.create(agentId);
 		tf.xy(x, y);
@@ -254,8 +270,9 @@ public class Agents extends IteratingInputSystem {
 		agent.setMaxAngularSpeed(45 * MathUtils.degreesToRadians);
 		agent.setMaxLinearAcceleration(20);
 		agent.setMaxLinearSpeed(2);
-		agent.boundingRadius = size;
+		agent.boundingRadius = .3f;
 		agent.getPosition().set(tf.x, tf.y);
+		agent.clearance = size;
 
 		AI ai = mAI.create(agentId);
 		Location<Vector2> location = agent.newLocation();
@@ -272,7 +289,7 @@ public class Agents extends IteratingInputSystem {
 
 		// radius must be large enough when compared to agents bounding radiys
 		CollisionAvoidance<Vector2> avoidance = new CollisionAvoidance<>(agent,
-			new RadiusProximity<>(agent, activeAgents, size * 3f));
+			new RadiusProximity<>(agent, activeAgents, .2f));
 		ai.avoidance = avoidance;
 		blendedSteering.add(avoidance, 5);
 		LookWhereYouAreGoing<Vector2> lookWhereYouAreGoing = new LookWhereYouAreGoing<>(agent);
@@ -309,10 +326,13 @@ public class Agents extends IteratingInputSystem {
 		int y = Map.grid(tmp.y);
 		switch (keycode) {
 		case Input.Keys.Q: {
-			trySpawnAt(x, y, .2f);
+			trySpawnAt(x, y, 1);
 		} break;
 		case Input.Keys.W: {
-			trySpawnAt(x, y, .5f);
+			trySpawnAt(x, y, 2);
+		}break;
+		case Input.Keys.E: {
+			trySpawnAt(x, y, 3);
 		}break;
 		}
 		return false;
