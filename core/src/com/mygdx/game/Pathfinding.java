@@ -37,7 +37,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 
 
 	NodePath activePath;
-	NodePath workPath;
+//	NodePath workPath;
 
 	boolean isActivePathSmoothed;
 	ManhattanDistance heuristic;
@@ -72,15 +72,14 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		}
 
 		activePath = new NodePath();
-		workPath = new NodePath();
 		heuristic = new ManhattanDistance();
-		pathFinder = new IndexedAStarPathFinder<Node>(map, true);
-		pathSmoother = new PathSmoother<Node, Vector2>(new CollisionDetector(map));
+		pathFinder = new IndexedAStarPathFinder<>(map, true);
+		pathSmoother = new PathSmoother<>(new CollisionDetector(map));
 
 		requestPool = new Pool<MyPathFinderRequest>() {
 			@Override
 			protected MyPathFinderRequest newObject () {
-				return new MyPathFinderRequest();
+				return new MyPathFinderRequest(pathSmoother);
 			}
 		};
 		PathFinderQueue<Node> pathFinderQueue = new PathFinderQueue<Node>(pathFinder);
@@ -126,9 +125,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 				System.out.println("pfQueue.size = " + pfQueue.size() + " executionFrames = " + pfr.executionFrames);
 			}
 
-			// Swap double buffer
-			workPath = activePath;
-			activePath = (NodePath)pfr.resultPath;
+			activePath.copy((NodePath)pfr.resultPath);
 
 			isActivePathSmoothed = pfr.smoothEnabled;
 
@@ -164,6 +161,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 			pfRequest.endNode = to;
 			pfRequest.heuristic = heuristic;
 			pfRequest.responseMessageCode = PF_RESPONSE_DEBUG;
+			pfRequest.smoothEnabled = smooth;
 			MessageManager.getInstance().dispatchMessage(this, PF_REQUEST, pfRequest);
 		}
 	}
@@ -178,6 +176,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 			pfRequest.heuristic = heuristic;
 			pfRequest.responseMessageCode = PF_RESPONSE;
 			pfRequest.callback = callback;
+			pfRequest.smoothEnabled = smooth;
 			MessageManager.getInstance().dispatchMessage(this, PF_REQUEST, pfRequest);
 		} else {
 			callback.notFound();
@@ -271,27 +270,31 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		public void truncatePath (int newLength) {
 			nodes.truncate(newLength);
 		}
+
+		public void copy (NodePath other) {
+			nodes.clear();
+			nodes.addAll(other.nodes);
+		}
 	}
 
-	protected class MyPathFinderRequest extends PathFinderRequest<Node> implements Pool.Poolable {
+	protected static class MyPathFinderRequest extends PathFinderRequest<Node> implements Pool.Poolable {
 		PathSmootherRequest<Node, Vector2> pathSmootherRequest;
 		boolean smoothEnabled;
 		boolean smoothFinished;
-		public PFCallback callback;
+		private PFCallback callback;
+		private PathSmoother<Node, Vector2> pathSmoother;
 
-		public MyPathFinderRequest () {
-			this.resultPath = new NodePath();
-			pathSmootherRequest = new PathSmootherRequest<Node, Vector2>();
+		public MyPathFinderRequest (PathSmoother<Node, Vector2> pathSmoother) {
+			this.pathSmoother = pathSmoother;
+			resultPath = new NodePath();
+			pathSmootherRequest = new PathSmootherRequest<>();
 		}
 
 		@Override
 		public boolean initializeSearch (long timeToRun) {
-			resultPath = workPath;
 			resultPath.clear();
-			smoothEnabled = smooth;
 			pathSmootherRequest.refresh((NodePath)resultPath);
 			smoothFinished = false;
-//			worldMap.startNode = startNode;
 			return true;
 		}
 
