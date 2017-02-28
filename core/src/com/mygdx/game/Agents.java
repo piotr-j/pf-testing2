@@ -13,6 +13,7 @@ import com.badlogic.gdx.ai.steer.behaviors.*;
 import com.badlogic.gdx.ai.steer.proximities.RadiusProximity;
 import com.badlogic.gdx.ai.steer.utils.Path;
 import com.badlogic.gdx.ai.steer.utils.paths.LinePath;
+import com.badlogic.gdx.ai.utils.ArithmeticUtils;
 import com.badlogic.gdx.ai.utils.Location;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -75,10 +76,16 @@ public class Agents extends IteratingInputSystem {
 			agent.getLinearVelocity().mulAdd(steeringOutput.linear, world.delta).limit(agent.getMaxLinearSpeed());
 
 			// If we haven't got any velocity, then we can do nothing.
-			if (!agent.getLinearVelocity().isZero(agent.getZeroLinearSpeedThreshold())) {
-				float newOrientation = vectorToAngle(agent.getLinearVelocity());
-				agent.setAngularVelocity((newOrientation - agent.getOrientation()) * world.delta);
-				agent.setOrientation(newOrientation);
+			if (!agent.getLinearVelocity().isZero(agent.getZeroLinearSpeedThreshold()) && ai.path != null) {
+				float orientation = vectorToAngle(agent.getLinearVelocity());
+				orientation = Step.of(orientation * MathUtils.radDeg).angle;
+				agent.targetOrientation = orientation * MathUtils.degRad;
+				Gdx.app.log(TAG, "target " + (orientation));
+			}
+
+			if (!MathUtils.isZero(agent.getAngularVelocity()) || !MathUtils.isZero(steeringOutput.angular)) {
+				agent.setOrientation(agent.getOrientation() + (agent.getAngularVelocity() * world.delta));
+				agent.setAngularVelocity(agent.getAngularVelocity() * 0.98f + steeringOutput.angular * world.delta);
 			}
 			tf.xy(agent.getPosition().x, agent.getPosition().y);
 		}
@@ -109,7 +116,7 @@ public class Agents extends IteratingInputSystem {
 		}
 
 		v2_1.set(0, 1).rotateRad(agent.getOrientation()).limit(.3f);
-		v2_2.set(1, 1).rotateRad(agent.getOrientation()).limit(.3f);
+		v2_2.set(1, 1).rotateRad(agent.targetOrientation).limit(.5f);
 
 		switch (agent.clearance) {
 		case 1: {
@@ -129,9 +136,14 @@ public class Agents extends IteratingInputSystem {
 			1, 1,
 			agent.getOrientation() * MathUtils.radDeg
 		);
+
+		shapes.setColor(Color.MAGENTA);
+		shapes.rectLine(tf.x, tf.y, tf.x + v2_2.x, tf.y + v2_2.y, .15f);
 //		shapes.circle(tf.x, tf.y, size, 16);
 		shapes.setColor(Color.DARK_GRAY);
 		shapes.rectLine(tf.x, tf.y, tf.x + v2_1.x, tf.y + v2_1.y, .1f);
+
+
 		shapes.end();
 
 		shapes.begin(ShapeRenderer.ShapeType.Line);
@@ -207,6 +219,8 @@ public class Agents extends IteratingInputSystem {
 
 		} else if (behavior instanceof Arrive) {
 			Arrive arrive = (Arrive)behavior;
+		} else if (behavior instanceof ReachOrientation) {
+			ReachOrientation ro = (ReachOrientation)behavior;
 		} else {
 			Gdx.app.log(TAG, "Not supported behaviour type " + behavior.getClass());
 		}
@@ -228,40 +242,12 @@ public class Agents extends IteratingInputSystem {
 		Transform tf = mTransform.get(selectedId);
 		final Agent agent = mAgent.get(selectedId);
 		float offset = (agent.clearance-1f)/2f;
-		pf.findPath(Map.grid(tf.x - offset), Map.grid(tf.y - offset), Map.grid(x), Map.grid(y), agent.clearance, new Pathfinding.PFCallback() {
+		pf.findPath(Map.grid(tf.gx - offset), Map.grid(tf.gy - offset), Map.grid(x - offset), Map.grid(y-offset), agent.clearance, new Pathfinding.PFCallback() {
 			@Override public void found (Pathfinding.NodePath path) {
 				final AI ai = mAI.get(selectedId);
 				ai.path = convertPath(path);
-				final MyFollowPath followPath = new MyFollowPath(agent, ai.path);
-				followPath.setCallback(new MyFollowPath.Callback() {
-					@Override public void arrived () {
-						Gdx.app.log(TAG, "Arrived");
-						ai.steering.remove(followPath);
-						Location<Vector2> location = ai.arrive.getTarget();
-						location.getPosition().set(agent.getPosition());
-						location.setOrientation(agent.getOrientation());
-						ai.steering.add(ai.arrive, 1);
-						ai.path = null;
-					}
-				});
-				followPath
-					.setTimeToTarget(0.15f)
-					.setPathOffset(.3f)
-					.setPredictionTime(.2f)
-					.setArrivalTolerance(0.01f)
-					.setArriveEnabled(true)
-					.setDecelerationRadius(.66f);
-				ai.steering.remove(ai.arrive);
-				// NOTE if we interrupt running follow path we need to remove it
-				MyBlendedSteering blendedSteering = ai.steering;
-				for (int i = blendedSteering.getCount() -1; i >= 0; i--) {
-					BlendedSteering.BehaviorAndWeight<Vector2> baw = blendedSteering.get(i);
-					if (baw.getBehavior() instanceof MyFollowPath) {
-						blendedSteering.remove(baw);
-					}
-				}
-				ai.steering.setWeight(ai.avoidance, 5);
-				ai.steering.add(followPath, 1);
+				ai.followPath.update(ai.path);
+				ai.steering = ai.steeringPath;
 			}
 
 			@Override public void notFound () {
@@ -284,37 +270,79 @@ public class Agents extends IteratingInputSystem {
 		int agentId = world.create();
 		Transform tf = mTransform.create(agentId);
 		tf.xy(x, y);
-		Agent agent = mAgent.create(agentId);
-		agent.setMaxAngularAcceleration(90 * MathUtils.degreesToRadians);
-		agent.setMaxAngularSpeed(45 * MathUtils.degreesToRadians);
+		final Agent agent = mAgent.create(agentId);
+		agent.setMaxAngularAcceleration(360 * MathUtils.degreesToRadians);
+		agent.setMaxAngularSpeed(90 * MathUtils.degreesToRadians);
 		agent.setMaxLinearAcceleration(20);
 		agent.setMaxLinearSpeed(2);
 		agent.boundingRadius = .3f;
 		agent.getPosition().set(tf.x, tf.y);
 		agent.clearance = size;
 
-		AI ai = mAI.create(agentId);
-		Location<Vector2> location = agent.newLocation();
-		location.getPosition().set(agent.getPosition());
-		location.setOrientation(agent.getOrientation());
-		Arrive<Vector2> arrive = new Arrive<>(agent, location);
-		arrive.setTimeToTarget(.15f);
-		arrive.setArrivalTolerance(.01f);
-		arrive.setDecelerationRadius(.66f);
+		final AI ai = mAI.create(agentId);
+		ai.target.getPosition().set(agent.getPosition());
+		ai.target.setOrientation(agent.getOrientation());
 
-		ai.arrive = arrive;
+//		ai.arrive = arrive;
 
-		MyBlendedSteering blendedSteering = new MyBlendedSteering(agent);
+		MyBlendedSteering steeringIdle = new MyBlendedSteering(agent);
 
 		// radius must be large enough when compared to agents bounding radiys
 		CollisionAvoidance<Vector2> avoidance = new CollisionAvoidance<>(agent,
 			new RadiusProximity<>(agent, activeAgents, .2f));
-		ai.avoidance = avoidance;
-		blendedSteering.add(avoidance, 5);
+//		ai.avoidance = avoidance;
+		steeringIdle.add(avoidance, 5);
+
+		ReachOrientation<Vector2> reachOrientation = new ReachOrientation<>(agent);
+		reachOrientation.setTarget(ai.target);
+		reachOrientation.setAlignTolerance(1 * MathUtils.degRad);
+		reachOrientation.setDecelerationRadius(MathUtils.PI/4);
+		reachOrientation.setTimeToTarget(.15f);
+		steeringIdle.add(reachOrientation, 1);
+
+		Arrive<Vector2> arrive = new Arrive<>(agent, ai.target);
+		arrive.setTimeToTarget(.15f);
+		arrive.setArrivalTolerance(.01f);
+		arrive.setDecelerationRadius(.66f);
+		steeringIdle.add(arrive, 1);
+
+		ai.steeringIdle = steeringIdle;
+
+		MyBlendedSteering steeringPath = new MyBlendedSteering(agent);
+		steeringPath.add(avoidance, 1);
+
 		LookWhereYouAreGoing<Vector2> lookWhereYouAreGoing = new LookWhereYouAreGoing<>(agent);
-		blendedSteering.add(lookWhereYouAreGoing, 1);
-		blendedSteering.add(arrive, 1);
-		ai.steering = blendedSteering;
+		lookWhereYouAreGoing.setAlignTolerance(1 * MathUtils.degRad);
+		lookWhereYouAreGoing.setDecelerationRadius(MathUtils.PI/4);
+		lookWhereYouAreGoing.setTimeToTarget(.15f);
+		steeringPath.add(lookWhereYouAreGoing, 1);
+
+		final MyFollowPath followPath = new MyFollowPath(agent);
+		followPath.setCallback(new MyFollowPath.Callback() {
+			@Override public void arrived () {
+				Gdx.app.log(TAG, "Arrived");
+				Location<Vector2> location = ai.target;
+				location.getPosition().set(agent.getPosition());
+				location.setOrientation(agent.targetOrientation);
+				ai.steering = ai.steeringIdle;
+				ai.path = null;
+			}
+		});
+		followPath
+			.setTimeToTarget(0.15f)
+			.setPathOffset(.3f)
+			.setPredictionTime(.2f)
+			.setArrivalTolerance(0.01f)
+			.setArriveEnabled(true)
+			.setDecelerationRadius(.66f);
+
+		ai.followPath = followPath;
+
+		steeringPath.add(followPath, 1);
+
+		ai.steeringPath = steeringPath;
+
+
 	}
 
 	private Path<Vector2, LinePath.LinePathParam> convertPath (Pathfinding.NodePath path) {
@@ -369,6 +397,7 @@ public class Agents extends IteratingInputSystem {
 	}
 
 	public static class MyFollowPath extends FollowPath<Vector2, LinePath.LinePathParam> {
+		private static final LinePath<Vector2> dummy = new LinePath<>(new Array<>(new Vector2[]{new Vector2(), new Vector2(0, 1)}));
 		private Callback callback;
 		public MyFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path) {
 			super(owner, path);
@@ -381,6 +410,10 @@ public class Agents extends IteratingInputSystem {
 		public MyFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset,
 			float predictionTime) {
 			super(owner, path, pathOffset, predictionTime);
+		}
+
+		public MyFollowPath (Agent agent) {
+			super(agent, dummy);
 		}
 
 		@Override protected SteeringAcceleration<Vector2> calculateRealSteering (SteeringAcceleration<Vector2> steering) {
@@ -396,6 +429,10 @@ public class Agents extends IteratingInputSystem {
 		public MyFollowPath setCallback (Callback callback) {
 			this.callback = callback;
 			return this;
+		}
+
+		public void update (Path<Vector2, LinePath.LinePathParam> path) {
+			this.path = path;
 		}
 
 		public interface Callback {
@@ -426,5 +463,33 @@ public class Agents extends IteratingInputSystem {
 				}
 			}
 		}
+	}
+
+	// counterclockwise, 0 east, 90 north, -90 south
+	public enum Step {E(0), SE(-45), S(-90), SW(-135), W(180), NW(135), N(90), NE(45);
+		public final int angle;
+		private static Step[] cache = new Step[360];
+		static {
+			Step[] values = values();
+			for (int i = 0; i < 360; i++) {
+				cache[i] = W;
+				for (Step value : values) {
+					if (Math.abs(i - value.angle - 180) <= 22.5f){
+						cache[i] = value;
+						break;
+					}
+				}
+			}
+		}
+		Step (int angle) {
+			this.angle = angle;
+		}
+		public static Step of(float angle) {
+			return cache[((int)normalize(angle)) + 180];
+		}
+	}
+
+	public static float normalize(float angle) {
+		return angle - 360f * MathUtils.floor((angle + 180) / 360f);
 	}
 }

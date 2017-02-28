@@ -12,9 +12,15 @@ import com.mygdx.game.Agents;
  * Created by EvilEntity on 23/02/2017.
  */
 public class AI extends Component {
+	public AgentLocation target = new AgentLocation();
 	public Agents.MyBlendedSteering steering;
-	public Arrive<Vector2> arrive;
+
+	public Agents.MyBlendedSteering steeringPath;
+	public Agents.MyBlendedSteering steeringIdle;
+//	public Arrive<Vector2> arrive;
+//	public Agents.MyFollowPath followPath;
 
 	public Path<Vector2, LinePath.LinePathParam> path;
-	public CollisionAvoidance<Vector2> avoidance;
+	public Agents.MyFollowPath followPath;
+//	public CollisionAvoidance<Vector2> avoidance;
 }

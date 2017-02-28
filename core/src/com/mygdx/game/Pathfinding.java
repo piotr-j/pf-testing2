@@ -189,26 +189,26 @@ public class Pathfinding extends InputSystem implements Telegraph {
 
 	private Node findTarget (int tx, int ty, int clearance) {
 		Node node = map.at(tx, ty);
-		if (node.clearance >= clearance) return node;
+		if (node != null && node.clearance >= clearance) return node;
 		if (clearance > 1) {
 			node = map.at(tx - 1, ty);
-			if (node.clearance >= clearance) return node;
+			if (node != null && node.clearance >= clearance) return node;
 			node = map.at(tx, ty - 1);
-			if (node.clearance >= clearance) return node;
+			if (node != null && node.clearance >= clearance) return node;
 			node = map.at(tx - 1, ty - 1);
-			if (node.clearance >= clearance) return node;
+			if (node != null && node.clearance >= clearance) return node;
 
 			if (clearance > 2) {
 				node = map.at(tx - 2, ty);
-				if (node.clearance >= clearance) return node;
+				if (node != null && node.clearance >= clearance) return node;
 				node = map.at(tx, ty - 2);
-				if (node.clearance >= clearance) return node;
+				if (node != null && node.clearance >= clearance) return node;
 				node = map.at(tx - 2, ty - 1);
-				if (node.clearance >= clearance) return node;
+				if (node != null && node.clearance >= clearance) return node;
 				node = map.at(tx - 1, ty - 2);
-				if (node.clearance >= clearance) return node;
+				if (node != null && node.clearance >= clearance) return node;
 				node = map.at(tx - 2, ty - 2);
-				if (node.clearance >= clearance) return node;
+				if (node != null && node.clearance >= clearance) return node;
 			}
 		}
 		return null;
