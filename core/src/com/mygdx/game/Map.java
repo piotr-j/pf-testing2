@@ -317,6 +317,10 @@ public class Map extends InputSystem implements com.mygdx.game.pfa.ClearanceInde
 		public void add (NodeConnection connection) {
 			connections.add(connection);
 		}
+
+		@Override public String toString () {
+			return "Node{" + "x=" + x + ", y=" + y + ", type=" + type + ", clearance=" + clearance + '}';
+		}
 	}
 
 	public static class NodeConnection implements Connection<Node> {

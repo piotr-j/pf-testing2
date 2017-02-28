@@ -105,10 +105,11 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		shapes.circle(end.x, end.y, .15f, 16);
 
 		shapes.setColor(Color.CYAN);
+		float offset = (debugClearance-1)/2f;
 		for (int i = 0; i < activePath.getCount() -1; i++) {
 			Node from = activePath.get(i);
 			Node to = activePath.get(i + 1);
-			shapes.line(from.x, from.y, to.x, to.y);
+			shapes.line(from.x + offset, from.y + offset, to.x + offset, to.y + offset);
 		}
 
 		shapes.end();
@@ -154,14 +155,15 @@ public class Pathfinding extends InputSystem implements Telegraph {
 	private void findPath () {
 		Node from = map.at(start.x, start.y);
 		Node to = map.at(end.x, end.y);
-		if (from != null && from.type != Map.WL && to != null && to.type != Map.WL) {
+		if (from != null && from.type != Map.WL && to != null && to.type != Map.WL && from != to) {
+
 			MyPathFinderRequest pfr = requestPool.obtain();
 			pfr.startNode = from;
 			pfr.endNode = to;
 			pfr.heuristic = heuristic;
 			pfr.responseMessageCode = PF_RESPONSE_DEBUG;
 			pfr.smoothEnabled = smooth;
-			pfr.clearance = debugClearance;
+			pfr.setClearance(debugClearance);
 			MessageManager.getInstance().dispatchMessage(this, PF_REQUEST, pfr);
 		}
 	}
@@ -169,7 +171,8 @@ public class Pathfinding extends InputSystem implements Telegraph {
 	public void findPath(int sx, int sy, int ex, int ey, int clearance, PFCallback callback) {
 		Node from = map.at(sx, sy);
 		Node to = findTarget(ex, ey, clearance);
-		if (from != null && from.type != Map.WL && to != null && to.type != Map.WL) {
+
+		if (from != null && from.type != Map.WL && to != null && to.type != Map.WL && from != to) {
 			MyPathFinderRequest pfr = requestPool.obtain();
 			pfr.startNode = from;
 			pfr.endNode = to;
@@ -177,7 +180,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 			pfr.responseMessageCode = PF_RESPONSE;
 			pfr.callback = callback;
 			pfr.smoothEnabled = smooth;
-			pfr.clearance = clearance;
+			pfr.setClearance(clearance);
 			MessageManager.getInstance().dispatchMessage(this, PF_REQUEST, pfr);
 		} else {
 			callback.notFound();
@@ -265,12 +268,13 @@ public class Pathfinding extends InputSystem implements Telegraph {
 	}
 
 	public static class NodePath implements GraphPath<Node>, SmoothableGraphPath<Node, Vector2> {
-		public final Array<Node> nodes = new Array<Node>();
+		public final Array<Node> nodes = new Array<>();
+		public int clearance;
 
 		public NodePath () {}
 
 		public NodePath (NodePath path) {
-			nodes.addAll(path.nodes);
+			copy(path);
 		}
 
 		@Override public void clear () {
@@ -315,6 +319,7 @@ public class Pathfinding extends InputSystem implements Telegraph {
 		}
 
 		public void copy (NodePath other) {
+			clearance = other.clearance;
 			nodes.clear();
 			nodes.addAll(other.nodes);
 		}
@@ -331,6 +336,11 @@ public class Pathfinding extends InputSystem implements Telegraph {
 			this.pathSmoother = pathSmoother;
 			resultPath = new NodePath();
 			pathSmootherRequest = new PathSmootherRequest<>();
+		}
+
+		public void setClearance(int clearance) {
+			this.clearance = clearance;
+			((NodePath)resultPath).clearance = clearance;
 		}
 
 		@Override

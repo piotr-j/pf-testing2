@@ -99,73 +99,17 @@ public class Agents extends IteratingInputSystem {
 		}
 		if (selectedId == entityId) {
 			shapes.setColor(Color.FIREBRICK);
-			shapes.circle(tf.x, tf.y, agent.boundingRadius * 1.2f, 16);
+			float size = (agent.clearance)/2f-.3f;
+			shapes.rect(tf.x - size, tf.y -size,
+				size, size,
+				size * 2, size * 2,
+				1, 1,
+				agent.getOrientation() * MathUtils.radDeg
+			);
 		}
-//		agent.setOrientation(agent.getOrientation() + world.delta * MathUtils.PI * .25f);
 
 		v2_1.set(0, 1).rotateRad(agent.getOrientation()).limit(.3f);
 		v2_2.set(1, 1).rotateRad(agent.getOrientation()).limit(.3f);
-
-		shapes.setColor(Color.CYAN);
-		float angle = agent.getOrientation() * MathUtils.radDeg;
-		float rAngle = 0;
-		rAngle = angle + 180;
-		rAngle = (int)((rAngle + 22.5f) / 45) * 45;
-		rAngle -= 180;
-		int iAngle = (int)rAngle;
-//		Gdx.app.log(TAG, "" + rAngle);
-		float realAngle = 0;
-		switch (iAngle) {
-		case -180: {
-			realAngle = 0;
-//			Gdx.app.log(TAG, "" + iAngle);
-		} break;
-		case -135: {
-			realAngle = -45;
-//			Gdx.app.log(TAG, "" + iAngle);
-		} break;
-		case -90: {
-			realAngle = 0;
-//			Gdx.app.log(TAG, "" + iAngle);
-		} break;
-		case -45: {
-			realAngle = -45;
-//			Gdx.app.log(TAG, "" + iAngle);
-		} break;
-		case 0: {
-			realAngle = 0;
-//			Gdx.app.log(TAG, "" + iAngle);
-		} break;
-		case 45: {
-			realAngle = -45;
-//			Gdx.app.log(TAG, "" + iAngle);
-		} break;
-		case 90: {
-			realAngle = 0;
-//			Gdx.app.log(TAG, "" + iAngle);
-		} break;
-		case 135: {
-			realAngle = -45;
-//			Gdx.app.log(TAG, "" + iAngle);
-		} break;
-		case 180: {
-			realAngle = 0;
-//			Gdx.app.log(TAG, "" + iAngle);
-		} break;
-		default: {
-			Gdx.app.log(TAG, "" + iAngle);
-		}
-		}
-		realAngle = 0;
-
-		shapes.rect(
-			tf.x - .3f, tf.y - .3f,
-			.3f, .3f,
-			agent.clearance - .4f, agent.clearance - .4f,
-			1, 1,
-//			agent.getOrientation() * MathUtils.radDeg
-			realAngle
-		);
 
 		switch (agent.clearance) {
 		case 1: {
@@ -178,7 +122,14 @@ public class Agents extends IteratingInputSystem {
 			shapes.setColor(Color.BLACK);
 		}break;
 		}
-		shapes.circle(tf.x, tf.y, agent.boundingRadius, 16);
+		float size = (agent.clearance)/2f-.4f;
+		shapes.rect(tf.x - size, tf.y -size,
+			size, size,
+			size * 2, size * 2,
+			1, 1,
+			agent.getOrientation() * MathUtils.radDeg
+		);
+//		shapes.circle(tf.x, tf.y, size, 16);
 		shapes.setColor(Color.DARK_GRAY);
 		shapes.rectLine(tf.x, tf.y, tf.x + v2_1.x, tf.y + v2_1.y, .1f);
 		shapes.end();
@@ -276,7 +227,8 @@ public class Agents extends IteratingInputSystem {
 		// find path
 		Transform tf = mTransform.get(selectedId);
 		final Agent agent = mAgent.get(selectedId);
-		pf.findPath(tf.gx, tf.gy, Map.grid(x), Map.grid(y), agent.clearance, new Pathfinding.PFCallback() {
+		float offset = (agent.clearance-1f)/2f;
+		pf.findPath(Map.grid(tf.x - offset), Map.grid(tf.y - offset), Map.grid(x), Map.grid(y), agent.clearance, new Pathfinding.PFCallback() {
 			@Override public void found (Pathfinding.NodePath path) {
 				final AI ai = mAI.get(selectedId);
 				ai.path = convertPath(path);
@@ -289,6 +241,7 @@ public class Agents extends IteratingInputSystem {
 						location.getPosition().set(agent.getPosition());
 						location.setOrientation(agent.getOrientation());
 						ai.steering.add(ai.arrive, 1);
+						ai.path = null;
 					}
 				});
 				followPath
@@ -314,6 +267,7 @@ public class Agents extends IteratingInputSystem {
 			@Override public void notFound () {
 				AI ai = mAI.get(selectedId);
 				ai.path = null;
+				Gdx.app.log(TAG, "path not found");
 			}
 		});
 		// follow path
@@ -364,10 +318,11 @@ public class Agents extends IteratingInputSystem {
 	}
 
 	private Path<Vector2, LinePath.LinePathParam> convertPath (Pathfinding.NodePath path) {
+		float offset = (path.clearance-1)/2f;
 		Array<Vector2> wayPoints = new Array<>();
 		for (int i = 0; i < path.getCount(); i++) {
 			Map.Node node = path.get(i);
-			wayPoints.add(new Vector2(node.x, node.y));
+			wayPoints.add(new Vector2(node.x + offset, node.y + offset));
 		}
 		return new LinePath<>(wayPoints, true);
 	}
@@ -430,7 +385,7 @@ public class Agents extends IteratingInputSystem {
 
 		@Override protected SteeringAcceleration<Vector2> calculateRealSteering (SteeringAcceleration<Vector2> steering) {
 			steering = super.calculateRealSteering(steering);
-			if (steering.isZero()) {
+			if (steering.isZero() && path.getEndPoint().epsilonEquals(owner.getPosition(), 0.01f)) {
 				if (callback != null) {
 					callback.arrived();
 				}
