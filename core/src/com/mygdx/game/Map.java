@@ -288,6 +288,15 @@ public class Map extends InputSystem implements com.mygdx.game.pfa.ClearanceInde
 		return fromNode.connections(clearance, out);
 	}
 
+	public static String typeToStr (int type) {
+		switch (type) {
+		case __: return "__";
+		case DR: return "DR";
+		case WL: return "WL";
+		}
+		return "??";
+	}
+
 	public static class Node {
 		public Array<NodeConnection> connections = new Array<>();
 		public final int index;

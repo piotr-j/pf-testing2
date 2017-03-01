@@ -54,6 +54,7 @@ public class Agents extends IteratingInputSystem {
 
 	boolean paused;
 	float delta;
+	float deltaScale = 1;
 	@Override protected void begin () {
 		shapes.setProjectionMatrix(camera.combined);
 		if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)){
@@ -62,7 +63,7 @@ public class Agents extends IteratingInputSystem {
 		if (paused) {
 			delta = 0;
 		} else {
-			delta = world.delta;
+			delta = world.delta * deltaScale;
 		}
 	}
 
@@ -99,6 +100,11 @@ public class Agents extends IteratingInputSystem {
 				agent.setAngularVelocity(agent.getAngularVelocity() * 0.98f + steeringOutput.angular * delta);
 			}
 			tf.xy(agent.getPosition().x, agent.getPosition().y);
+		}
+
+		if (agent.doorTimer > 0) {
+			agent.doorTimer -= delta;
+			if (agent.doorTimer < 0) agent.doorTimer = 0;
 		}
 
 		// TODO handle size
@@ -229,6 +235,16 @@ public class Agents extends IteratingInputSystem {
 
 			shapes.circle(tf.x, tf.y, radius, 32);
 
+		} else if (behavior instanceof PriorityFollowPath) {
+			PriorityFollowPath pfp = (PriorityFollowPath)behavior;
+			shapes.setColor(Color.GOLD);
+			Vector2 tp = pfp.getInternalTargetPosition();
+			shapes.circle(tp.x, tp.y, .15f, 16);
+
+			shapes.setColor(Color.MAGENTA);
+			Vector2 ap = pfp.getArriveTargetPosition();
+			shapes.circle(ap.x, ap.y, .15f, 16);
+
 		} else if (behavior instanceof Arrive) {
 			Arrive arrive = (Arrive)behavior;
 		} else if (behavior instanceof ReachOrientation) {
@@ -264,6 +280,7 @@ public class Agents extends IteratingInputSystem {
 				final AI ai = mAI.get(selectedId);
 				ai.path = convertPath(path);
 				ai.followPath.update(ai.path, path);
+				ai.priorityPath.update(ai.path, path);
 				ai.steering = ai.steeringPath;
 			}
 
@@ -278,11 +295,13 @@ public class Agents extends IteratingInputSystem {
 
 	private void trySpawnAt (int x, int y, int size) {
 		Map.Node at = map.at(x, y);
-		if (at == null || at.type == Map.WL) return;
+		if (at == null || at.type == Map.WL)
+			return;
 		IntBag entityIds = getEntityIds();
 		for (int i = 0; i < entityIds.size(); i++) {
 			Transform tf = mTransform.get(entityIds.get(i));
-			if (tf.gx == x && tf.gy == y) return;
+			if (tf.gx == x && tf.gy == y)
+				return;
 		}
 		int agentId = world.create();
 		Transform tf = mTransform.create(agentId);
@@ -307,15 +326,14 @@ public class Agents extends IteratingInputSystem {
 		MyBlendedSteering steeringIdle = new MyBlendedSteering(agent);
 
 		// radius must be large enough when compared to agents bounding radiys
-		CollisionAvoidance<Vector2> avoidance = new CollisionAvoidance<>(agent,
-			new RadiusProximity<>(agent, activeAgents, .2f));
+		CollisionAvoidance<Vector2> avoidance = new CollisionAvoidance<>(agent, new RadiusProximity<>(agent, activeAgents, .2f));
 //		ai.avoidance = avoidance;
 		priorityIdle.add(avoidance);
 
 		ReachOrientation<Vector2> reachOrientation = new ReachOrientation<>(agent);
 		reachOrientation.setTarget(ai.target);
 		reachOrientation.setAlignTolerance(1 * MathUtils.degRad);
-		reachOrientation.setDecelerationRadius(MathUtils.PI/4);
+		reachOrientation.setDecelerationRadius(MathUtils.PI / 4);
 		reachOrientation.setTimeToTarget(.15f);
 		steeringIdle.add(reachOrientation, 1);
 
@@ -337,6 +355,10 @@ public class Agents extends IteratingInputSystem {
 		priorityFollowPath.setTimeToTarget(.15f);
 		priorityFollowPath.setArrivalTolerance(.01f);
 		priorityFollowPath.setDecelerationRadius(.66f);
+		priorityFollowPath.setPathOffset(1.3f);
+		priorityFollowPath.setPredictionTime(0);
+		priorityFollowPath.setMap(map);
+		ai.priorityPath = priorityFollowPath;
 		priorityPath.add(priorityFollowPath);
 
 		MyBlendedSteering blendedPath = new MyBlendedSteering(agent);
@@ -344,7 +366,7 @@ public class Agents extends IteratingInputSystem {
 
 		LookWhereYouAreGoing<Vector2> lookWhereYouAreGoing = new LookWhereYouAreGoing<>(agent);
 		lookWhereYouAreGoing.setAlignTolerance(1 * MathUtils.degRad);
-		lookWhereYouAreGoing.setDecelerationRadius(MathUtils.PI/4);
+		lookWhereYouAreGoing.setDecelerationRadius(MathUtils.PI / 4);
 		lookWhereYouAreGoing.setTimeToTarget(.15f);
 		blendedPath.add(lookWhereYouAreGoing, 1);
 
@@ -361,7 +383,7 @@ public class Agents extends IteratingInputSystem {
 		});
 		followPath
 			.setTimeToTarget(0.15f)
-			.setPathOffset(1.3f)
+			.setPathOffset(0.3f)
 			.setPredictionTime(.2f)
 			.setArrivalTolerance(0.01f)
 			.setArriveEnabled(true)
@@ -410,6 +432,18 @@ public class Agents extends IteratingInputSystem {
 		}break;
 		case Input.Keys.E: {
 			trySpawnAt(x, y, 3);
+		}break;
+		case Input.Keys.MINUS: {
+			deltaScale = Math.max(deltaScale -.1f, 0);
+			Gdx.app.log(TAG, "ds " + deltaScale);
+		}break;
+		case Input.Keys.EQUALS: {
+			deltaScale = Math.min(deltaScale +.1f, 2);
+			Gdx.app.log(TAG, "ds " + deltaScale);
+		}break;
+		case Input.Keys.NUM_0: {
+			deltaScale = 1;
+			Gdx.app.log(TAG, "ds " + deltaScale);
 		}break;
 		}
 		return false;
@@ -547,13 +581,16 @@ public class Agents extends IteratingInputSystem {
 
 				// Calculate the behavior's steering
 				behavior.calculateSteering(steering);
-
+				// this steering will be taken into account only if override is true
+				if (behavior instanceof PriorityOverride) {
+					if (((PriorityOverride)behavior).override()) {
+						return steering;
+					} else {
+						continue;
+					}
+				}
 				// If we're above the threshold return the current steering
 				if (steering.calculateSquareMagnitude() > epsilonSquared) return steering;
-				// override in case the desired steering is 0
-				if (steering instanceof PriorityOverride) {
-					if (((PriorityOverride)steering).override()) return steering;
-				}
 			}
 
 			// If we get here, it means that no behavior had a large enough acceleration,
@@ -772,7 +809,7 @@ public class Agents extends IteratingInputSystem {
 		}
 	}
 
-	public static class PriorityFollowPath extends Arrive<Vector2> {
+	public static class PriorityFollowPath extends Arrive<Vector2> implements MyPrioritySteering.PriorityOverride {
 		private static final LinePath<Vector2> dummy = new LinePath<>(new Array<>(new Vector2[]{new Vector2(), new Vector2(0, 1)}));
 
 		/** The path to follow */
@@ -792,13 +829,20 @@ public class Agents extends IteratingInputSystem {
 
 		private Vector2 internalTargetPosition;
 
-		public PriorityFollowPath (Steerable<Vector2> owner) {
+		private Vector2 arriveTargetPosition;
+
+		protected boolean override;
+		protected Map map;
+		protected Agent owner;
+		private Pathfinding.NodePath nodePath;
+
+		public PriorityFollowPath (Agent owner) {
 			this(owner, dummy, 0);
 		}
 		/** Creates a non-predictive {@code FollowPath} behavior for the specified owner and path.
 		 * @param owner the owner of this behavior
 		 * @param path the path to be followed by the owner. */
-		public PriorityFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path) {
+		public PriorityFollowPath (Agent owner, Path<Vector2, LinePath.LinePathParam> path) {
 			this(owner, path, 0);
 		}
 
@@ -807,7 +851,7 @@ public class Agents extends IteratingInputSystem {
 		 * @param path the path to be followed by the owner
 		 * @param pathOffset the distance along the path to generate the target. Can be negative if the owner is to move along the
 		 *           reverse direction. */
-		public PriorityFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset) {
+		public PriorityFollowPath (Agent owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset) {
 			this(owner, path, pathOffset, 0);
 		}
 
@@ -818,18 +862,21 @@ public class Agents extends IteratingInputSystem {
 		 * @param pathOffset the distance along the path to generate the target. Can be negative if the owner is to move along the
 		 *           reverse direction.
 		 * @param predictionTime the time in the future to predict the owner's position. Can be 0 for non-predictive path following. */
-		public PriorityFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset, float predictionTime) {
+		public PriorityFollowPath (Agent owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset, float predictionTime) {
 			super(owner);
 			this.path = path;
 			this.pathParam = path.createParam();
 			this.pathOffset = pathOffset;
 			this.predictionTime = predictionTime;
+			this.owner = owner;
 
 			this.arriveEnabled = true;
 
 			this.internalTargetPosition = newVector(owner);
+			this.arriveTargetPosition = newVector(owner);
 		}
 
+		int lastAt = -1;
 		@Override
 		protected SteeringAcceleration<Vector2> calculateRealSteering (SteeringAcceleration<Vector2> steering) {
 
@@ -850,25 +897,53 @@ public class Agents extends IteratingInputSystem {
 			// Calculate the target position
 			path.calculateTargetPosition(internalTargetPosition, pathParam, targetDistance);
 
-			if (arriveEnabled && path.isOpen()) {
-				if (pathOffset >= 0) {
-					// Use Arrive to approach the last point of the path
-					if (targetDistance > path.getLength() - decelerationRadius) return arrive(steering, internalTargetPosition);
+			Map.Node at = map.at(internalTargetPosition.x, internalTargetPosition.y);
+			if (lastAt != at.index) {
+				lastAt = at.index;
+				Gdx.app.log(TAG, "At " + Map.typeToStr(at.type));
+				if (at.type == Map.DR) {
+					// TODO init door open
+					int indexOf = nodePath.indexOf(at);
+					if (indexOf > 0) {
+						arriveTargetPosition.set(nodePath.getNodePosition(indexOf - 1));
+					} else {
+						arriveTargetPosition.set(nodePath.getNodePosition(indexOf));
+					}
+					owner.doorTimer = 1;
+					override = true;
 				} else {
-					// Use Arrive to approach the first point of the path
-					if (targetDistance < decelerationRadius) return arrive(steering, internalTargetPosition);
+					override = false;
+					arriveTargetPosition.set(0, 0);
 				}
 			}
-
-			// Seek the target position
-			steering.linear.set(internalTargetPosition).sub(owner.getPosition()).nor()
-				.scl(getActualLimiter().getMaxLinearAcceleration());
-
-			// No angular acceleration
-			steering.angular = 0;
-
-			// Output steering acceleration
+			if (override) {
+				if (owner.doorTimer > 0) {
+					return arrive(steering, arriveTargetPosition);
+				} else {
+					override = false;
+				}
+			}
 			return steering;
+
+//			if (arriveEnabled && path.isOpen()) {
+//				if (pathOffset >= 0) {
+//					// Use Arrive to approach the last point of the path
+//					if (targetDistance > path.getLength() - decelerationRadius) return arrive(steering, internalTargetPosition);
+//				} else {
+//					// Use Arrive to approach the first point of the path
+//					if (targetDistance < decelerationRadius) return arrive(steering, internalTargetPosition);
+//				}
+//			}
+//
+//			// Seek the target position
+//			steering.linear.set(internalTargetPosition).sub(owner.getPosition()).nor()
+//				.scl(getActualLimiter().getMaxLinearAcceleration());
+//
+//			// No angular acceleration
+//			steering.angular = 0;
+//
+//			// Output steering acceleration
+//			return steering;
 		}
 
 		/** Returns the path to follow */
@@ -934,13 +1009,18 @@ public class Agents extends IteratingInputSystem {
 			return internalTargetPosition;
 		}
 
+		public Vector2 getArriveTargetPosition () {
+			return arriveTargetPosition;
+		}
+
 		//
 		// Setters overridden in order to fix the correct return type for chaining
 		//
 
 		@Override
 		public PriorityFollowPath setOwner (Steerable<Vector2> owner) {
-			this.owner = owner;
+			super.setOwner(owner);
+			this.owner = (Agent)owner;
 			return this;
 		}
 
@@ -981,6 +1061,19 @@ public class Agents extends IteratingInputSystem {
 		public PriorityFollowPath setTimeToTarget (float timeToTarget) {
 			this.timeToTarget = timeToTarget;
 			return this;
+		}
+
+		public void setMap (Map map) {
+			this.map = map;
+		}
+
+		@Override public boolean override () {
+			return override;
+		}
+
+		public void update (Path<Vector2, LinePath.LinePathParam> path, Pathfinding.NodePath nodePath) {
+			this.nodePath = nodePath;
+			setPath(path);
 		}
 	}
 

@@ -323,6 +323,10 @@ public class Pathfinding extends InputSystem implements Telegraph {
 			nodes.clear();
 			nodes.addAll(other.nodes);
 		}
+
+		public int indexOf (Node node) {
+			return nodes.indexOf(node, true);
+		}
 	}
 
 	protected static class MyPathFinderRequest extends ClearancePathFinderRequest<Node> implements Pool.Poolable {

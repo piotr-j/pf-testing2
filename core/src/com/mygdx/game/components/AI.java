@@ -25,5 +25,6 @@ public class AI extends Component {
 
 	public Path<Vector2, LinePath.LinePathParam> path;
 	public Agents.MyFollowPath followPath;
+	public Agents.PriorityFollowPath priorityPath;
 //	public CollisionAvoidance<Vector2> avoidance;
 }
