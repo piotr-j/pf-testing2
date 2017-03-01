@@ -2,9 +2,6 @@ package com.mygdx.game.components;
 
 import com.artemis.Component;
 import com.badlogic.gdx.ai.steer.SteeringBehavior;
-import com.badlogic.gdx.ai.steer.behaviors.Arrive;
-import com.badlogic.gdx.ai.steer.behaviors.CollisionAvoidance;
-import com.badlogic.gdx.ai.steer.behaviors.PrioritySteering;
 import com.badlogic.gdx.ai.steer.utils.Path;
 import com.badlogic.gdx.ai.steer.utils.paths.LinePath;
 import com.badlogic.gdx.math.Vector2;
@@ -25,6 +22,6 @@ public class AI extends Component {
 
 	public Path<Vector2, LinePath.LinePathParam> path;
 	public Agents.MyFollowPath followPath;
-	public Agents.PriorityFollowPath priorityPath;
+	public Agents.PriorityDoorArrive priorityPath;
 //	public CollisionAvoidance<Vector2> avoidance;
 }

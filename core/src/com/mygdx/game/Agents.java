@@ -235,8 +235,8 @@ public class Agents extends IteratingInputSystem {
 
 			shapes.circle(tf.x, tf.y, radius, 32);
 
-		} else if (behavior instanceof PriorityFollowPath) {
-			PriorityFollowPath pfp = (PriorityFollowPath)behavior;
+		} else if (behavior instanceof PriorityDoorArrive) {
+			PriorityDoorArrive pfp = (PriorityDoorArrive)behavior;
 			shapes.setColor(Color.GOLD);
 			Vector2 tp = pfp.getInternalTargetPosition();
 			shapes.circle(tp.x, tp.y, .15f, 16);
@@ -351,15 +351,15 @@ public class Agents extends IteratingInputSystem {
 		// TODO use follow path, with fairly large path offset so we are about 2 tiles ahead of actual position
 		// if out target is at locked door, we want to arrive to previous waypoint until the door is open
 		// hit the map to check type, store if door was hit, use agents timer for debug
-		PriorityFollowPath priorityFollowPath = new PriorityFollowPath(agent);
-		priorityFollowPath.setTimeToTarget(.15f);
-		priorityFollowPath.setArrivalTolerance(.01f);
-		priorityFollowPath.setDecelerationRadius(.66f);
-		priorityFollowPath.setPathOffset(1.3f);
-		priorityFollowPath.setPredictionTime(0);
-		priorityFollowPath.setMap(map);
-		ai.priorityPath = priorityFollowPath;
-		priorityPath.add(priorityFollowPath);
+		PriorityDoorArrive priorityDoorArrive = new PriorityDoorArrive(agent);
+		priorityDoorArrive.setTimeToTarget(.15f);
+		priorityDoorArrive.setArrivalTolerance(.01f);
+		priorityDoorArrive.setDecelerationRadius(.66f);
+		priorityDoorArrive.setPathOffset(1.3f);
+		priorityDoorArrive.setPredictionTime(0);
+		priorityDoorArrive.setMap(map);
+		ai.priorityPath = priorityDoorArrive;
+		priorityPath.add(priorityDoorArrive);
 
 		MyBlendedSteering blendedPath = new MyBlendedSteering(agent);
 		blendedPath.add(avoidance, 1);
@@ -809,11 +809,8 @@ public class Agents extends IteratingInputSystem {
 		}
 	}
 
-	public static class PriorityFollowPath extends Arrive<Vector2> implements MyPrioritySteering.PriorityOverride {
+	public static class PriorityDoorArrive extends Arrive<Vector2> implements MyPrioritySteering.PriorityOverride {
 		private static final LinePath<Vector2> dummy = new LinePath<>(new Array<>(new Vector2[]{new Vector2(), new Vector2(0, 1)}));
-
-		/** The path to follow */
-		protected Path<Vector2, LinePath.LinePathParam> path;
 
 		/** The distance along the path to generate the target. Can be negative if the owner has to move along the reverse direction. */
 		protected float pathOffset;
@@ -834,15 +831,15 @@ public class Agents extends IteratingInputSystem {
 		protected boolean override;
 		protected Map map;
 		protected Agent owner;
-		private Pathfinding.NodePath nodePath;
+		private LinePath<Vector2> path;
 
-		public PriorityFollowPath (Agent owner) {
+		public PriorityDoorArrive (Agent owner) {
 			this(owner, dummy, 0);
 		}
 		/** Creates a non-predictive {@code FollowPath} behavior for the specified owner and path.
 		 * @param owner the owner of this behavior
 		 * @param path the path to be followed by the owner. */
-		public PriorityFollowPath (Agent owner, Path<Vector2, LinePath.LinePathParam> path) {
+		public PriorityDoorArrive (Agent owner, Path<Vector2, LinePath.LinePathParam> path) {
 			this(owner, path, 0);
 		}
 
@@ -851,7 +848,7 @@ public class Agents extends IteratingInputSystem {
 		 * @param path the path to be followed by the owner
 		 * @param pathOffset the distance along the path to generate the target. Can be negative if the owner is to move along the
 		 *           reverse direction. */
-		public PriorityFollowPath (Agent owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset) {
+		public PriorityDoorArrive (Agent owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset) {
 			this(owner, path, pathOffset, 0);
 		}
 
@@ -862,9 +859,9 @@ public class Agents extends IteratingInputSystem {
 		 * @param pathOffset the distance along the path to generate the target. Can be negative if the owner is to move along the
 		 *           reverse direction.
 		 * @param predictionTime the time in the future to predict the owner's position. Can be 0 for non-predictive path following. */
-		public PriorityFollowPath (Agent owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset, float predictionTime) {
+		public PriorityDoorArrive (Agent owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset, float predictionTime) {
 			super(owner);
-			this.path = path;
+			this.path = (LinePath<Vector2>)path;
 			this.pathParam = path.createParam();
 			this.pathOffset = pathOffset;
 			this.predictionTime = predictionTime;
@@ -874,6 +871,28 @@ public class Agents extends IteratingInputSystem {
 
 			this.internalTargetPosition = newVector(owner);
 			this.arriveTargetPosition = newVector(owner);
+		}
+
+		protected int findSegmentIndex (float targetDistance) {
+			// NOTE only open paths
+			if (targetDistance < 0) {
+				// Clamp target distance to the min
+				targetDistance = 0;
+			} else if (targetDistance > path.getLength()) {
+				// Clamp target distance to the max
+				targetDistance = path.getLength();
+			}
+
+			// Walk through lines to see on which line we are
+			Array<LinePath.Segment<Vector2>> segments = path.getSegments();
+			int segmentId = -1;
+			for (int i = 0; i < segments.size; i++) {
+				LinePath.Segment<Vector2> segment = segments.get(i);
+				if (segment.getCumulativeLength() >= targetDistance) {
+					return i;
+				}
+			}
+			return segmentId;
 		}
 
 		int lastAt = -1;
@@ -894,7 +913,7 @@ public class Agents extends IteratingInputSystem {
 			// Offset it
 			float targetDistance = distance + pathOffset;
 
-			// Calculate the target position
+			// first we find a target thats ahead far enough
 			path.calculateTargetPosition(internalTargetPosition, pathParam, targetDistance);
 
 			Map.Node at = map.at(internalTargetPosition.x, internalTargetPosition.y);
@@ -902,13 +921,11 @@ public class Agents extends IteratingInputSystem {
 				lastAt = at.index;
 				Gdx.app.log(TAG, "At " + Map.typeToStr(at.type));
 				if (at.type == Map.DR) {
-					// TODO init door open
-					int indexOf = nodePath.indexOf(at);
-					if (indexOf > 0) {
-						arriveTargetPosition.set(nodePath.getNodePosition(indexOf - 1));
-					} else {
-						arriveTargetPosition.set(nodePath.getNodePosition(indexOf));
-					}
+					// if we hit a door, we find the segment that ends in the door
+					Array<LinePath.Segment<Vector2>> segments = path.getSegments();
+					int segmentIndex = findSegmentIndex(targetDistance);
+					arriveTargetPosition.set(segments.get(segmentIndex).getBegin());
+					// NOTE request the door to open
 					owner.doorTimer = 1;
 					override = true;
 				} else {
@@ -917,33 +934,15 @@ public class Agents extends IteratingInputSystem {
 				}
 			}
 			if (override) {
+				// NOTE arrive at the selected target while we wait for door to open
 				if (owner.doorTimer > 0) {
+					// TODO face in the direction of the door?
 					return arrive(steering, arriveTargetPosition);
 				} else {
 					override = false;
 				}
 			}
-			return steering;
-
-//			if (arriveEnabled && path.isOpen()) {
-//				if (pathOffset >= 0) {
-//					// Use Arrive to approach the last point of the path
-//					if (targetDistance > path.getLength() - decelerationRadius) return arrive(steering, internalTargetPosition);
-//				} else {
-//					// Use Arrive to approach the first point of the path
-//					if (targetDistance < decelerationRadius) return arrive(steering, internalTargetPosition);
-//				}
-//			}
-//
-//			// Seek the target position
-//			steering.linear.set(internalTargetPosition).sub(owner.getPosition()).nor()
-//				.scl(getActualLimiter().getMaxLinearAcceleration());
-//
-//			// No angular acceleration
-//			steering.angular = 0;
-//
-//			// Output steering acceleration
-//			return steering;
+			return steering.setZero();
 		}
 
 		/** Returns the path to follow */
@@ -954,8 +953,8 @@ public class Agents extends IteratingInputSystem {
 		/** Sets the path followed by this behavior.
 		 * @param path the path to set
 		 * @return this behavior for chaining. */
-		public PriorityFollowPath setPath (Path<Vector2, LinePath.LinePathParam> path) {
-			this.path = path;
+		public PriorityDoorArrive setPath (Path<Vector2, LinePath.LinePathParam> path) {
+			this.path = (LinePath<Vector2>)path;
 			return this;
 		}
 
@@ -977,7 +976,7 @@ public class Agents extends IteratingInputSystem {
 		/** Sets the prediction time. Set it to 0 for non-predictive path following.
 		 * @param predictionTime the predictionTime to set
 		 * @return this behavior for chaining. */
-		public PriorityFollowPath setPredictionTime (float predictionTime) {
+		public PriorityDoorArrive setPredictionTime (float predictionTime) {
 			this.predictionTime = predictionTime;
 			return this;
 		}
@@ -986,7 +985,7 @@ public class Agents extends IteratingInputSystem {
 		 * {@code true}.
 		 * @param arriveEnabled the flag value to set
 		 * @return this behavior for chaining. */
-		public PriorityFollowPath setArriveEnabled (boolean arriveEnabled) {
+		public PriorityDoorArrive setArriveEnabled (boolean arriveEnabled) {
 			this.arriveEnabled = arriveEnabled;
 			return this;
 		}
@@ -994,7 +993,7 @@ public class Agents extends IteratingInputSystem {
 		/** Sets the path offset to generate the target. Can be negative if the owner has to move along the reverse direction.
 		 * @param pathOffset the pathOffset to set
 		 * @return this behavior for chaining. */
-		public PriorityFollowPath setPathOffset (float pathOffset) {
+		public PriorityDoorArrive setPathOffset (float pathOffset) {
 			this.pathOffset = pathOffset;
 			return this;
 		}
@@ -1018,14 +1017,14 @@ public class Agents extends IteratingInputSystem {
 		//
 
 		@Override
-		public PriorityFollowPath setOwner (Steerable<Vector2> owner) {
+		public PriorityDoorArrive setOwner (Steerable<Vector2> owner) {
 			super.setOwner(owner);
 			this.owner = (Agent)owner;
 			return this;
 		}
 
 		@Override
-		public PriorityFollowPath setEnabled (boolean enabled) {
+		public PriorityDoorArrive setEnabled (boolean enabled) {
 			this.enabled = enabled;
 			return this;
 		}
@@ -1034,31 +1033,31 @@ public class Agents extends IteratingInputSystem {
 		 * acceleration. However the maximum linear speed is not required for a closed path.
 		 * @return this behavior for chaining. */
 		@Override
-		public PriorityFollowPath setLimiter (Limiter limiter) {
+		public PriorityDoorArrive setLimiter (Limiter limiter) {
 			this.limiter = limiter;
 			return this;
 		}
 
 		@Override
-		public PriorityFollowPath setTarget (Location<Vector2> target) {
+		public PriorityDoorArrive setTarget (Location<Vector2> target) {
 			this.target = target;
 			return this;
 		}
 
 		@Override
-		public PriorityFollowPath setArrivalTolerance (float arrivalTolerance) {
+		public PriorityDoorArrive setArrivalTolerance (float arrivalTolerance) {
 			this.arrivalTolerance = arrivalTolerance;
 			return this;
 		}
 
 		@Override
-		public PriorityFollowPath setDecelerationRadius (float decelerationRadius) {
+		public PriorityDoorArrive setDecelerationRadius (float decelerationRadius) {
 			this.decelerationRadius = decelerationRadius;
 			return this;
 		}
 
 		@Override
-		public PriorityFollowPath setTimeToTarget (float timeToTarget) {
+		public PriorityDoorArrive setTimeToTarget (float timeToTarget) {
 			this.timeToTarget = timeToTarget;
 			return this;
 		}
@@ -1072,7 +1071,6 @@ public class Agents extends IteratingInputSystem {
 		}
 
 		public void update (Path<Vector2, LinePath.LinePathParam> path, Pathfinding.NodePath nodePath) {
-			this.nodePath = nodePath;
 			setPath(path);
 		}
 	}
