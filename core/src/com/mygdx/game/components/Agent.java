@@ -28,6 +28,8 @@ public class Agent extends Component implements Steerable<Vector2>  {
 	public int clearance = 1;
 	public float targetOrientation;
 
+	public float doorTimer;
+
 	@Override
 	public Vector2 getPosition () {
 		return position;

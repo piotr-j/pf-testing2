@@ -6,6 +6,7 @@ import com.artemis.annotations.Wire;
 import com.artemis.utils.IntBag;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.ai.steer.Limiter;
 import com.badlogic.gdx.ai.steer.Steerable;
 import com.badlogic.gdx.ai.steer.SteeringAcceleration;
 import com.badlogic.gdx.ai.steer.SteeringBehavior;
@@ -13,12 +14,12 @@ import com.badlogic.gdx.ai.steer.behaviors.*;
 import com.badlogic.gdx.ai.steer.proximities.RadiusProximity;
 import com.badlogic.gdx.ai.steer.utils.Path;
 import com.badlogic.gdx.ai.steer.utils.paths.LinePath;
-import com.badlogic.gdx.ai.utils.ArithmeticUtils;
 import com.badlogic.gdx.ai.utils.Location;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Circle;
 import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.math.Vector;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.reflect.ClassReflection;
@@ -51,8 +52,18 @@ public class Agents extends IteratingInputSystem {
 
 	}
 
+	boolean paused;
+	float delta;
 	@Override protected void begin () {
 		shapes.setProjectionMatrix(camera.combined);
+		if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)){
+			paused = !paused;
+		}
+		if (paused) {
+			delta = 0;
+		} else {
+			delta = world.delta;
+		}
 	}
 
 	@Override protected void inserted (int entityId) {
@@ -72,20 +83,20 @@ public class Agents extends IteratingInputSystem {
 			// Calculate steering acceleration
 			ai.steering.calculateSteering(steeringOutput);
 
-			agent.getPosition().mulAdd(agent.getLinearVelocity(), world.delta);
-			agent.getLinearVelocity().mulAdd(steeringOutput.linear, world.delta).limit(agent.getMaxLinearSpeed());
+			agent.getPosition().mulAdd(agent.getLinearVelocity(), delta);
+			agent.getLinearVelocity().mulAdd(steeringOutput.linear, delta).limit(agent.getMaxLinearSpeed());
 
 			// If we haven't got any velocity, then we can do nothing.
 			if (!agent.getLinearVelocity().isZero(agent.getZeroLinearSpeedThreshold()) && ai.path != null) {
 				float orientation = vectorToAngle(agent.getLinearVelocity());
 				orientation = Step.of(orientation * MathUtils.radDeg).angle;
 				agent.targetOrientation = orientation * MathUtils.degRad;
-				Gdx.app.log(TAG, "target " + (orientation));
+//				Gdx.app.log(TAG, "target " + (orientation));
 			}
 
 			if (!MathUtils.isZero(agent.getAngularVelocity()) || !MathUtils.isZero(steeringOutput.angular)) {
-				agent.setOrientation(agent.getOrientation() + (agent.getAngularVelocity() * world.delta));
-				agent.setAngularVelocity(agent.getAngularVelocity() * 0.98f + steeringOutput.angular * world.delta);
+				agent.setOrientation(agent.getOrientation() + (agent.getAngularVelocity() * delta));
+				agent.setAngularVelocity(agent.getAngularVelocity() * 0.98f + steeringOutput.angular * delta);
 			}
 			tf.xy(agent.getPosition().x, agent.getPosition().y);
 		}
@@ -137,8 +148,8 @@ public class Agents extends IteratingInputSystem {
 			agent.getOrientation() * MathUtils.radDeg
 		);
 
-		shapes.setColor(Color.MAGENTA);
-		shapes.rectLine(tf.x, tf.y, tf.x + v2_2.x, tf.y + v2_2.y, .15f);
+//		shapes.setColor(Color.MAGENTA);
+//		shapes.rectLine(tf.x, tf.y, tf.x + v2_2.x, tf.y + v2_2.y, .15f);
 //		shapes.circle(tf.x, tf.y, size, 16);
 		shapes.setColor(Color.DARK_GRAY);
 		shapes.rectLine(tf.x, tf.y, tf.x + v2_1.x, tf.y + v2_1.y, .1f);
@@ -205,9 +216,10 @@ public class Agents extends IteratingInputSystem {
 				}
 
 				shapes.setColor(Color.MAGENTA);
-				v2_1.set(relativePosition).scl(.1f);
-				shapes.line(tf.x, tf.y, tf.x + v2_1.x, tf.y + v2_1.y);
-
+				if (relativePosition != null) {
+					v2_1.set(relativePosition).scl(.1f);
+					shapes.line(tf.x, tf.y, tf.x + v2_1.x, tf.y + v2_1.y);
+				}
 			} catch (ReflectionException e) {
 				e.printStackTrace();
 			}
@@ -221,13 +233,18 @@ public class Agents extends IteratingInputSystem {
 			Arrive arrive = (Arrive)behavior;
 		} else if (behavior instanceof ReachOrientation) {
 			ReachOrientation ro = (ReachOrientation)behavior;
+		} else if (behavior instanceof MyArrive) {
+			MyArrive arrive = (MyArrive)behavior;
+		} else if (behavior instanceof MyPrioritySteering) {
+			MyPrioritySteering ps = (MyPrioritySteering)behavior;
+			for (int i = 0; i < ps.getCount(); i++) {
+				drawDebug(tf, ps.get(i));
+			}
+		} else if (behavior instanceof PrioritySteering) {
+			PrioritySteering ps = (PrioritySteering)behavior;
 		} else {
 			Gdx.app.log(TAG, "Not supported behaviour type " + behavior.getClass());
 		}
-	}
-
-	@Override protected void end () {
-
 	}
 
 	int selectedId = -1;
@@ -246,7 +263,7 @@ public class Agents extends IteratingInputSystem {
 			@Override public void found (Pathfinding.NodePath path) {
 				final AI ai = mAI.get(selectedId);
 				ai.path = convertPath(path);
-				ai.followPath.update(ai.path);
+				ai.followPath.update(ai.path, path);
 				ai.steering = ai.steeringPath;
 			}
 
@@ -285,13 +302,15 @@ public class Agents extends IteratingInputSystem {
 
 //		ai.arrive = arrive;
 
+		PrioritySteering<Vector2> priorityIdle = new PrioritySteering<>(agent);
+
 		MyBlendedSteering steeringIdle = new MyBlendedSteering(agent);
 
 		// radius must be large enough when compared to agents bounding radiys
 		CollisionAvoidance<Vector2> avoidance = new CollisionAvoidance<>(agent,
 			new RadiusProximity<>(agent, activeAgents, .2f));
 //		ai.avoidance = avoidance;
-		steeringIdle.add(avoidance, 5);
+		priorityIdle.add(avoidance);
 
 		ReachOrientation<Vector2> reachOrientation = new ReachOrientation<>(agent);
 		reachOrientation.setTarget(ai.target);
@@ -305,17 +324,29 @@ public class Agents extends IteratingInputSystem {
 		arrive.setArrivalTolerance(.01f);
 		arrive.setDecelerationRadius(.66f);
 		steeringIdle.add(arrive, 1);
+		priorityIdle.add(steeringIdle);
 
-		ai.steeringIdle = steeringIdle;
+		ai.steeringIdle = priorityIdle;
 
-		MyBlendedSteering steeringPath = new MyBlendedSteering(agent);
-		steeringPath.add(avoidance, 1);
+		// TODO we want custom priority steering, that will stop following path if blocked tile is encountered
+		MyPrioritySteering<Vector2> priorityPath = new MyPrioritySteering<>(agent);
+		// TODO use follow path, with fairly large path offset so we are about 2 tiles ahead of actual position
+		// if out target is at locked door, we want to arrive to previous waypoint until the door is open
+		// hit the map to check type, store if door was hit, use agents timer for debug
+		PriorityFollowPath priorityFollowPath = new PriorityFollowPath(agent);
+		priorityFollowPath.setTimeToTarget(.15f);
+		priorityFollowPath.setArrivalTolerance(.01f);
+		priorityFollowPath.setDecelerationRadius(.66f);
+		priorityPath.add(priorityFollowPath);
+
+		MyBlendedSteering blendedPath = new MyBlendedSteering(agent);
+		blendedPath.add(avoidance, 1);
 
 		LookWhereYouAreGoing<Vector2> lookWhereYouAreGoing = new LookWhereYouAreGoing<>(agent);
 		lookWhereYouAreGoing.setAlignTolerance(1 * MathUtils.degRad);
 		lookWhereYouAreGoing.setDecelerationRadius(MathUtils.PI/4);
 		lookWhereYouAreGoing.setTimeToTarget(.15f);
-		steeringPath.add(lookWhereYouAreGoing, 1);
+		blendedPath.add(lookWhereYouAreGoing, 1);
 
 		final MyFollowPath followPath = new MyFollowPath(agent);
 		followPath.setCallback(new MyFollowPath.Callback() {
@@ -330,7 +361,7 @@ public class Agents extends IteratingInputSystem {
 		});
 		followPath
 			.setTimeToTarget(0.15f)
-			.setPathOffset(.3f)
+			.setPathOffset(1.3f)
 			.setPredictionTime(.2f)
 			.setArrivalTolerance(0.01f)
 			.setArriveEnabled(true)
@@ -338,11 +369,9 @@ public class Agents extends IteratingInputSystem {
 
 		ai.followPath = followPath;
 
-		steeringPath.add(followPath, 1);
-
-		ai.steeringPath = steeringPath;
-
-
+		blendedPath.add(followPath, 1);
+		priorityPath.add(blendedPath);
+		ai.steeringPath = priorityPath;
 	}
 
 	private Path<Vector2, LinePath.LinePathParam> convertPath (Pathfinding.NodePath path) {
@@ -399,6 +428,8 @@ public class Agents extends IteratingInputSystem {
 	public static class MyFollowPath extends FollowPath<Vector2, LinePath.LinePathParam> {
 		private static final LinePath<Vector2> dummy = new LinePath<>(new Array<>(new Vector2[]{new Vector2(), new Vector2(0, 1)}));
 		private Callback callback;
+		private Pathfinding.NodePath nodes;
+
 		public MyFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path) {
 			super(owner, path);
 		}
@@ -431,8 +462,9 @@ public class Agents extends IteratingInputSystem {
 			return this;
 		}
 
-		public void update (Path<Vector2, LinePath.LinePathParam> path) {
+		public void update (Path<Vector2, LinePath.LinePathParam> path, Pathfinding.NodePath nodes) {
 			this.path = path;
+			this.nodes = nodes;
 		}
 
 		public interface Callback {
@@ -462,6 +494,493 @@ public class Agents extends IteratingInputSystem {
 					behaviorAndWeight.setWeight(weight);
 				}
 			}
+		}
+	}
+
+	public static class MyPrioritySteering<T extends Vector<T>> extends SteeringBehavior<T> {
+
+		/** The threshold of the steering acceleration magnitude below which a steering behavior is considered to have given no output. */
+		protected float epsilon;
+
+		/** The list of steering behaviors in priority order. The first item in the list is tried first, the subsequent entries are only
+		 * considered if the first one does not return a result. */
+		protected Array<SteeringBehavior<T>> behaviors = new Array<SteeringBehavior<T>>();
+
+		/** The index of the behavior whose acceleration has been returned by the last evaluation of this priority steering. */
+		protected int selectedBehaviorIndex;
+
+		/** Creates a {@code PrioritySteering} behavior for the specified owner. The threshold is set to 0.001.
+		 * @param owner the owner of this behavior */
+		public MyPrioritySteering (Steerable<T> owner) {
+			this(owner, 0.001f);
+		}
+
+		/** Creates a {@code PrioritySteering} behavior for the specified owner and threshold.
+		 * @param owner the owner of this behavior
+		 * @param epsilon the threshold of the steering acceleration magnitude below which a steering behavior is considered to have
+		 *           given no output */
+		public MyPrioritySteering (Steerable<T> owner, float epsilon) {
+			super(owner);
+			this.epsilon = epsilon;
+		}
+
+		/** Adds the specified behavior to the priority list.
+		 * @param behavior the behavior to add
+		 * @return this behavior for chaining. */
+		public MyPrioritySteering<T> add (SteeringBehavior<T> behavior) {
+			behaviors.add(behavior);
+			return this;
+		}
+
+		@Override
+		protected SteeringAcceleration<T> calculateRealSteering (SteeringAcceleration<T> steering) {
+			// We'll need epsilon squared later.
+			float epsilonSquared = epsilon * epsilon;
+
+			// Go through the behaviors until one has a large enough acceleration
+			int n = behaviors.size;
+			selectedBehaviorIndex = -1;
+			for (int i = 0; i < n; i++) {
+				selectedBehaviorIndex = i;
+
+				SteeringBehavior<T> behavior = behaviors.get(i);
+
+				// Calculate the behavior's steering
+				behavior.calculateSteering(steering);
+
+				// If we're above the threshold return the current steering
+				if (steering.calculateSquareMagnitude() > epsilonSquared) return steering;
+				// override in case the desired steering is 0
+				if (steering instanceof PriorityOverride) {
+					if (((PriorityOverride)steering).override()) return steering;
+				}
+			}
+
+			// If we get here, it means that no behavior had a large enough acceleration,
+			// so return the small acceleration from the final behavior or zero if there are
+			// no behaviors in the list.
+			return n > 0 ? steering : steering.setZero();
+		}
+
+		/** Returns the index of the behavior whose acceleration has been returned by the last evaluation of this priority steering; -1
+		 * otherwise. */
+		public int getSelectedBehaviorIndex () {
+			return selectedBehaviorIndex;
+		}
+
+		/** Returns the threshold of the steering acceleration magnitude below which a steering behavior is considered to have given no
+		 * output. */
+		public float getEpsilon () {
+			return epsilon;
+		}
+
+		/** Sets the threshold of the steering acceleration magnitude below which a steering behavior is considered to have given no
+		 * output.
+		 * @param epsilon the epsilon to set
+		 * @return this behavior for chaining. */
+		public MyPrioritySteering<T> setEpsilon (float epsilon) {
+			this.epsilon = epsilon;
+			return this;
+		}
+
+		public interface PriorityOverride {
+			boolean override();
+		}
+
+		//
+		// Setters overridden in order to fix the correct return type for chaining
+		//
+
+		@Override
+		public MyPrioritySteering<T> setOwner (Steerable<T> owner) {
+			this.owner = owner;
+			return this;
+		}
+
+		@Override
+		public MyPrioritySteering<T> setEnabled (boolean enabled) {
+			this.enabled = enabled;
+			return this;
+		}
+
+		/** Sets the limiter of this steering behavior. However, {@code PrioritySteering} needs no limiter at all as it simply returns
+		 * the first non zero steering acceleration.
+		 * @return this behavior for chaining. */
+		@Override
+		public MyPrioritySteering<T> setLimiter (Limiter limiter) {
+			this.limiter = limiter;
+			return this;
+		}
+
+		public int getCount() {
+			return behaviors.size;
+		}
+
+		public SteeringBehavior<T> get (int i) {
+			return behaviors.get(i);
+		}
+	}
+
+	public class MyArrive<T extends Vector<T>> extends SteeringBehavior<T> implements MyPrioritySteering.PriorityOverride {
+
+		/** The target to arrive to. */
+		protected Location<T> target;
+
+		/** The tolerance for arriving at the target. It lets the owner get near enough to the target without letting small errors keep
+		 * it in motion. */
+		protected float arrivalTolerance;
+
+		/** The radius for beginning to slow down */
+		protected float decelerationRadius;
+
+		/** The time over which to achieve target speed */
+		protected float timeToTarget = 0.1f;
+
+		protected boolean override;
+
+		/** Creates an {@code Arrive} behavior for the specified owner.
+		 * @param owner the owner of this behavior */
+		public MyArrive (Steerable<T> owner) {
+			this(owner, null);
+		}
+
+		/** Creates an {@code Arrive} behavior for the specified owner and target.
+		 * @param owner the owner of this behavior
+		 * @param target the target of this behavior */
+		public MyArrive (Steerable<T> owner, Location<T> target) {
+			super(owner);
+			this.target = target;
+		}
+
+		@Override
+		protected SteeringAcceleration<T> calculateRealSteering (SteeringAcceleration<T> steering) {
+			return arrive(steering, target.getPosition());
+		}
+
+		protected SteeringAcceleration<T> arrive (SteeringAcceleration<T> steering, T targetPosition) {
+
+			if (!override) {
+				steering.setZero();
+				return steering;
+			}
+
+			// Get the direction and distance to the target
+			T toTarget = steering.linear.set(targetPosition).sub(owner.getPosition());
+			float distance = toTarget.len();
+
+			// Check if we are there, return no steering
+			if (distance <= arrivalTolerance) return steering.setZero();
+
+			Limiter actualLimiter = getActualLimiter();
+			// Go max speed
+			float targetSpeed = actualLimiter.getMaxLinearSpeed();
+
+			// If we are inside the slow down radius calculate a scaled speed
+			if (distance <= decelerationRadius) targetSpeed *= distance / decelerationRadius;
+
+			// Target velocity combines speed and direction
+			T targetVelocity = toTarget.scl(targetSpeed / distance); // Optimized code for: toTarget.nor().scl(targetSpeed)
+
+			// Acceleration tries to get to the target velocity without exceeding max acceleration
+			// Notice that steering.linear and targetVelocity are the same vector
+			targetVelocity.sub(owner.getLinearVelocity()).scl(1f / timeToTarget).limit(actualLimiter.getMaxLinearAcceleration());
+
+			// No angular acceleration
+			steering.angular = 0f;
+
+			// Output the steering
+			return steering;
+		}
+
+		/** Returns the target to arrive to. */
+		public Location<T> getTarget () {
+			return target;
+		}
+
+		/** Sets the target to arrive to.
+		 * @return this behavior for chaining. */
+		public MyArrive<T> setTarget (Location<T> target) {
+			this.target = target;
+			return this;
+		}
+
+		/** Returns the tolerance for arriving at the target. It lets the owner get near enough to the target without letting small
+		 * errors keep it in motion. */
+		public float getArrivalTolerance () {
+			return arrivalTolerance;
+		}
+
+		/** Sets the tolerance for arriving at the target. It lets the owner get near enough to the target without letting small errors
+		 * keep it in motion.
+		 * @return this behavior for chaining. */
+		public MyArrive<T> setArrivalTolerance (float arrivalTolerance) {
+			this.arrivalTolerance = arrivalTolerance;
+			return this;
+		}
+
+		/** Returns the radius for beginning to slow down. */
+		public float getDecelerationRadius () {
+			return decelerationRadius;
+		}
+
+		/** Sets the radius for beginning to slow down.
+		 * @return this behavior for chaining. */
+		public MyArrive<T> setDecelerationRadius (float decelerationRadius) {
+			this.decelerationRadius = decelerationRadius;
+			return this;
+		}
+
+		/** Returns the time over which to achieve target speed. */
+		public float getTimeToTarget () {
+			return timeToTarget;
+		}
+
+		/** Sets the time over which to achieve target speed.
+		 * @return this behavior for chaining. */
+		public MyArrive<T> setTimeToTarget (float timeToTarget) {
+			this.timeToTarget = timeToTarget;
+			return this;
+		}
+
+		//
+		// Setters overridden in order to fix the correct return type for chaining
+		//
+
+		@Override
+		public MyArrive<T> setOwner (Steerable<T> owner) {
+			this.owner = owner;
+			return this;
+		}
+
+		@Override
+		public MyArrive<T> setEnabled (boolean enabled) {
+			this.enabled = enabled;
+			return this;
+		}
+
+		/** Sets the limiter of this steering behavior. The given limiter must at least take care of the maximum linear speed and
+		 * acceleration.
+		 * @return this behavior for chaining. */
+		@Override
+		public MyArrive<T> setLimiter (Limiter limiter) {
+			this.limiter = limiter;
+			return this;
+		}
+
+		@Override public boolean override () {
+			return override;
+		}
+	}
+
+	public static class PriorityFollowPath extends Arrive<Vector2> {
+		private static final LinePath<Vector2> dummy = new LinePath<>(new Array<>(new Vector2[]{new Vector2(), new Vector2(0, 1)}));
+
+		/** The path to follow */
+		protected Path<Vector2, LinePath.LinePathParam> path;
+
+		/** The distance along the path to generate the target. Can be negative if the owner has to move along the reverse direction. */
+		protected float pathOffset;
+
+		/** The current position on the path */
+		protected LinePath.LinePathParam pathParam;
+
+		/** The flag indicating whether to use {@link Arrive} behavior to approach the end of an open path. It defaults to {@code true}. */
+		protected boolean arriveEnabled;
+
+		/** The time in the future to predict the owner's position. Set it to 0 for non-predictive path following. */
+		protected float predictionTime;
+
+		private Vector2 internalTargetPosition;
+
+		public PriorityFollowPath (Steerable<Vector2> owner) {
+			this(owner, dummy, 0);
+		}
+		/** Creates a non-predictive {@code FollowPath} behavior for the specified owner and path.
+		 * @param owner the owner of this behavior
+		 * @param path the path to be followed by the owner. */
+		public PriorityFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path) {
+			this(owner, path, 0);
+		}
+
+		/** Creates a non-predictive {@code FollowPath} behavior for the specified owner, path and path offset.
+		 * @param owner the owner of this behavior
+		 * @param path the path to be followed by the owner
+		 * @param pathOffset the distance along the path to generate the target. Can be negative if the owner is to move along the
+		 *           reverse direction. */
+		public PriorityFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset) {
+			this(owner, path, pathOffset, 0);
+		}
+
+		/** Creates a {@code FollowPath} behavior for the specified owner, path, path offset, maximum linear acceleration and prediction
+		 * time.
+		 * @param owner the owner of this behavior
+		 * @param path the path to be followed by the owner
+		 * @param pathOffset the distance along the path to generate the target. Can be negative if the owner is to move along the
+		 *           reverse direction.
+		 * @param predictionTime the time in the future to predict the owner's position. Can be 0 for non-predictive path following. */
+		public PriorityFollowPath (Steerable<Vector2> owner, Path<Vector2, LinePath.LinePathParam> path, float pathOffset, float predictionTime) {
+			super(owner);
+			this.path = path;
+			this.pathParam = path.createParam();
+			this.pathOffset = pathOffset;
+			this.predictionTime = predictionTime;
+
+			this.arriveEnabled = true;
+
+			this.internalTargetPosition = newVector(owner);
+		}
+
+		@Override
+		protected SteeringAcceleration<Vector2> calculateRealSteering (SteeringAcceleration<Vector2> steering) {
+
+			// Predictive or non-predictive behavior?
+			Vector2 location = (predictionTime == 0) ?
+				// Use the current position of the owner
+				owner.getPosition()
+				:
+				// Calculate the predicted future position of the owner. We're reusing steering.linear here.
+				steering.linear.set(owner.getPosition()).mulAdd(owner.getLinearVelocity(), predictionTime);
+
+			// Find the distance from the start of the path
+			float distance = path.calculateDistance(location, pathParam);
+
+			// Offset it
+			float targetDistance = distance + pathOffset;
+
+			// Calculate the target position
+			path.calculateTargetPosition(internalTargetPosition, pathParam, targetDistance);
+
+			if (arriveEnabled && path.isOpen()) {
+				if (pathOffset >= 0) {
+					// Use Arrive to approach the last point of the path
+					if (targetDistance > path.getLength() - decelerationRadius) return arrive(steering, internalTargetPosition);
+				} else {
+					// Use Arrive to approach the first point of the path
+					if (targetDistance < decelerationRadius) return arrive(steering, internalTargetPosition);
+				}
+			}
+
+			// Seek the target position
+			steering.linear.set(internalTargetPosition).sub(owner.getPosition()).nor()
+				.scl(getActualLimiter().getMaxLinearAcceleration());
+
+			// No angular acceleration
+			steering.angular = 0;
+
+			// Output steering acceleration
+			return steering;
+		}
+
+		/** Returns the path to follow */
+		public Path<Vector2, LinePath.LinePathParam> getPath () {
+			return path;
+		}
+
+		/** Sets the path followed by this behavior.
+		 * @param path the path to set
+		 * @return this behavior for chaining. */
+		public PriorityFollowPath setPath (Path<Vector2, LinePath.LinePathParam> path) {
+			this.path = path;
+			return this;
+		}
+
+		/** Returns the path offset. */
+		public float getPathOffset () {
+			return pathOffset;
+		}
+
+		/** Returns the flag indicating whether to use {@link Arrive} behavior to approach the end of an open path. */
+		public boolean isArriveEnabled () {
+			return arriveEnabled;
+		}
+
+		/** Returns the prediction time. */
+		public float getPredictionTime () {
+			return predictionTime;
+		}
+
+		/** Sets the prediction time. Set it to 0 for non-predictive path following.
+		 * @param predictionTime the predictionTime to set
+		 * @return this behavior for chaining. */
+		public PriorityFollowPath setPredictionTime (float predictionTime) {
+			this.predictionTime = predictionTime;
+			return this;
+		}
+
+		/** Sets the flag indicating whether to use {@link Arrive} behavior to approach the end of an open path. It defaults to
+		 * {@code true}.
+		 * @param arriveEnabled the flag value to set
+		 * @return this behavior for chaining. */
+		public PriorityFollowPath setArriveEnabled (boolean arriveEnabled) {
+			this.arriveEnabled = arriveEnabled;
+			return this;
+		}
+
+		/** Sets the path offset to generate the target. Can be negative if the owner has to move along the reverse direction.
+		 * @param pathOffset the pathOffset to set
+		 * @return this behavior for chaining. */
+		public PriorityFollowPath setPathOffset (float pathOffset) {
+			this.pathOffset = pathOffset;
+			return this;
+		}
+
+		/** Returns the current path parameter. */
+		public LinePath.LinePathParam getPathParam () {
+			return pathParam;
+		}
+
+		/** Returns the current position of the internal target. This method is useful for debug purpose. */
+		public Vector2 getInternalTargetPosition () {
+			return internalTargetPosition;
+		}
+
+		//
+		// Setters overridden in order to fix the correct return type for chaining
+		//
+
+		@Override
+		public PriorityFollowPath setOwner (Steerable<Vector2> owner) {
+			this.owner = owner;
+			return this;
+		}
+
+		@Override
+		public PriorityFollowPath setEnabled (boolean enabled) {
+			this.enabled = enabled;
+			return this;
+		}
+
+		/** Sets the limiter of this steering behavior. The given limiter must at least take care of the maximum linear speed and
+		 * acceleration. However the maximum linear speed is not required for a closed path.
+		 * @return this behavior for chaining. */
+		@Override
+		public PriorityFollowPath setLimiter (Limiter limiter) {
+			this.limiter = limiter;
+			return this;
+		}
+
+		@Override
+		public PriorityFollowPath setTarget (Location<Vector2> target) {
+			this.target = target;
+			return this;
+		}
+
+		@Override
+		public PriorityFollowPath setArrivalTolerance (float arrivalTolerance) {
+			this.arrivalTolerance = arrivalTolerance;
+			return this;
+		}
+
+		@Override
+		public PriorityFollowPath setDecelerationRadius (float decelerationRadius) {
+			this.decelerationRadius = decelerationRadius;
+			return this;
+		}
+
+		@Override
+		public PriorityFollowPath setTimeToTarget (float timeToTarget) {
+			this.timeToTarget = timeToTarget;
+			return this;
 		}
 	}
 
