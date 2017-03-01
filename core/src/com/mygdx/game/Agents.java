@@ -117,6 +117,11 @@ public class Agents extends IteratingInputSystem {
 			float c = 0;
 			for (int i = 0; i < segments.size; i++) {
 				shapes.setColor(c, c, c, 1);
+				if (i%2 == 0) {
+					shapes.setColor(Color.MAGENTA);
+				} else {
+					shapes.setColor(Color.CYAN);
+				}
 				LinePath.Segment<Vector2> segment = segments.get(i);
 				shapes.rectLine(segment.getBegin().x, segment.getBegin().y, segment.getEnd().x, segment.getEnd().y, .075f);
 				c += step;
@@ -252,6 +257,11 @@ public class Agents extends IteratingInputSystem {
 			ReachOrientation ro = (ReachOrientation)behavior;
 		} else if (behavior instanceof MyArrive) {
 			MyArrive arrive = (MyArrive)behavior;
+		} else if (behavior instanceof PriorityBlendedSteering) {
+			PriorityBlendedSteering pbs = (PriorityBlendedSteering)behavior;
+			for (int i = 0; i < pbs.getCount(); i++) {
+				drawDebug(tf, pbs.get(i).getBehavior());
+			}
 		} else if (behavior instanceof MyPrioritySteering) {
 			MyPrioritySteering ps = (MyPrioritySteering)behavior;
 			for (int i = 0; i < ps.getCount(); i++) {
@@ -358,9 +368,12 @@ public class Agents extends IteratingInputSystem {
 		priorityDoorArrive.setTimeToTarget(.15f);
 		priorityDoorArrive.setArrivalTolerance(.01f);
 		priorityDoorArrive.setDecelerationRadius(.66f);
-		priorityDoorArrive.setPathOffset(1.3f);
+		priorityDoorArrive.setPathOffset(.5f * size + .8f);
 		priorityDoorArrive.setPredictionTime(0);
 		priorityDoorArrive.setMap(map);
+		priorityDoorArrive.setAlignTolerance(1 * MathUtils.degRad);
+		priorityDoorArrive.setFaceDecelerationRadius(MathUtils.PI / 4);
+		priorityDoorArrive.setFaceTimeToTarget(.15f);
 		ai.priorityPath = priorityDoorArrive;
 		priorityBlendedPath.add(priorityDoorArrive, 1);
 
@@ -390,7 +403,7 @@ public class Agents extends IteratingInputSystem {
 		});
 		followPath
 			.setTimeToTarget(0.15f)
-			.setPathOffset(0.3f)
+			.setPathOffset(.3f * size)
 			.setPredictionTime(.2f)
 			.setArrivalTolerance(0.01f)
 			.setArriveEnabled(true)
@@ -986,21 +999,23 @@ public class Agents extends IteratingInputSystem {
 			path.calculateTargetPosition(internalTargetPosition, pathParam, targetDistance);
 
 			Map.Node at = map.at(internalTargetPosition.x, internalTargetPosition.y);
-			if (lastAt != at.index) {
-				lastAt = at.index;
-				Gdx.app.log(TAG, "At " + Map.typeToStr(at.type));
-				if (at.type == Map.DR) {
-					// if we hit a door, we find the segment that ends in the door
-					Array<LinePath.Segment<Vector2>> segments = path.getSegments();
-					int segmentIndex = findSegmentIndex(targetDistance);
-					arriveTargetPosition.set(segments.get(segmentIndex).getBegin());
-					faceLocation.getPosition().set(segments.get(segmentIndex).getEnd());
-					// NOTE request the door to open
-					owner.doorTimer = 1;
-					override = true;
-				} else {
-					override = false;
-					arriveTargetPosition.set(0, 0);
+			if (!override) {
+				if (lastAt != at.index) {
+					lastAt = at.index;
+					Gdx.app.log(TAG, "At " + Map.typeToStr(at.type));
+					if (at.type == Map.DR) {
+						// if we hit a door, we find the segment that ends in the door
+						Array<LinePath.Segment<Vector2>> segments = path.getSegments();
+						int segmentIndex = findSegmentIndex(targetDistance);
+						arriveTargetPosition.set(segments.get(segmentIndex).getBegin());
+						faceLocation.getPosition().set(segments.get(segmentIndex).getEnd());
+						// NOTE request the door to open
+						owner.doorTimer = owner.clearance * 2;
+						override = true;
+					} else {
+						override = false;
+						arriveTargetPosition.set(0, 0);
+					}
 				}
 			}
 			if (override) {
