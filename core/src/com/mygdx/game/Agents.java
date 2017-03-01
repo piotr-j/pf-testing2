@@ -27,6 +27,7 @@ import com.badlogic.gdx.utils.reflect.Field;
 import com.badlogic.gdx.utils.reflect.ReflectionException;
 import com.mygdx.game.components.AI;
 import com.mygdx.game.components.Agent;
+import com.mygdx.game.components.AgentLocation;
 import com.mygdx.game.components.Transform;
 
 /**
@@ -348,6 +349,8 @@ public class Agents extends IteratingInputSystem {
 
 		// TODO we want custom priority steering, that will stop following path if blocked tile is encountered
 		MyPrioritySteering<Vector2> priorityPath = new MyPrioritySteering<>(agent);
+
+		PriorityBlendedSteering priorityBlendedPath = new PriorityBlendedSteering(agent);
 		// TODO use follow path, with fairly large path offset so we are about 2 tiles ahead of actual position
 		// if out target is at locked door, we want to arrive to previous waypoint until the door is open
 		// hit the map to check type, store if door was hit, use agents timer for debug
@@ -359,7 +362,11 @@ public class Agents extends IteratingInputSystem {
 		priorityDoorArrive.setPredictionTime(0);
 		priorityDoorArrive.setMap(map);
 		ai.priorityPath = priorityDoorArrive;
-		priorityPath.add(priorityDoorArrive);
+		priorityBlendedPath.add(priorityDoorArrive, 1);
+
+
+
+		priorityPath.add(priorityBlendedPath);
 
 		MyBlendedSteering blendedPath = new MyBlendedSteering(agent);
 		blendedPath.add(avoidance, 1);
@@ -528,6 +535,61 @@ public class Agents extends IteratingInputSystem {
 					behaviorAndWeight.setWeight(weight);
 				}
 			}
+		}
+	}
+
+	public static class PriorityBlendedSteering extends BlendedSteering<Vector2> implements MyPrioritySteering.PriorityOverride {
+		protected SteeringAcceleration<Vector2> steering;
+
+		boolean override;
+		public PriorityBlendedSteering (Steerable<Vector2> owner) {
+			super(owner);
+			this.steering = new SteeringAcceleration<Vector2>(newVector(owner));
+
+		}
+
+		public int getCount() {
+			return list.size;
+		}
+
+		@Override protected SteeringAcceleration<Vector2> calculateRealSteering (SteeringAcceleration<Vector2> blendedSteering) {
+			blendedSteering.setZero();
+			override = false;
+			// Go through all the behaviors
+			int len = list.size;
+			for (int i = 0; i < len; i++) {
+				BehaviorAndWeight<Vector2> bw = list.get(i);
+				SteeringBehavior<Vector2> behavior = bw.getBehavior();
+				// Calculate the behavior's steering
+				behavior.calculateSteering(steering);
+
+				// Scale and add the steering to the accumulator
+				blendedSteering.mulAdd(steering, bw.getWeight());
+				if (behavior instanceof MyPrioritySteering.PriorityOverride) {
+					override |= ((MyPrioritySteering.PriorityOverride)behavior).override();
+				}
+			}
+
+			Limiter actualLimiter = getActualLimiter();
+
+			// Crop the result
+			blendedSteering.linear.limit(actualLimiter.getMaxLinearAcceleration());
+			if (blendedSteering.angular > actualLimiter.getMaxAngularAcceleration())
+				blendedSteering.angular = actualLimiter.getMaxAngularAcceleration();
+
+			return blendedSteering;
+		}
+
+		public void setWeight(SteeringBehavior behavior, float weight) {
+			for (BehaviorAndWeight<Vector2> behaviorAndWeight : list) {
+				if (behaviorAndWeight.getBehavior() == behavior) {
+					behaviorAndWeight.setWeight(weight);
+				}
+			}
+		}
+
+		@Override public boolean override () {
+			return override;
 		}
 	}
 
@@ -833,6 +895,9 @@ public class Agents extends IteratingInputSystem {
 		protected Agent owner;
 		private LinePath<Vector2> path;
 
+		protected Face<Vector2> face;
+		protected AgentLocation faceLocation;
+
 		public PriorityDoorArrive (Agent owner) {
 			this(owner, dummy, 0);
 		}
@@ -871,6 +936,10 @@ public class Agents extends IteratingInputSystem {
 
 			this.internalTargetPosition = newVector(owner);
 			this.arriveTargetPosition = newVector(owner);
+
+			face = new Face<>(owner);
+			faceLocation = new AgentLocation();
+			face.setTarget(faceLocation);
 		}
 
 		protected int findSegmentIndex (float targetDistance) {
@@ -925,6 +994,7 @@ public class Agents extends IteratingInputSystem {
 					Array<LinePath.Segment<Vector2>> segments = path.getSegments();
 					int segmentIndex = findSegmentIndex(targetDistance);
 					arriveTargetPosition.set(segments.get(segmentIndex).getBegin());
+					faceLocation.getPosition().set(segments.get(segmentIndex).getEnd());
 					// NOTE request the door to open
 					owner.doorTimer = 1;
 					override = true;
@@ -936,8 +1006,13 @@ public class Agents extends IteratingInputSystem {
 			if (override) {
 				// NOTE arrive at the selected target while we wait for door to open
 				if (owner.doorTimer > 0) {
-					// TODO face in the direction of the door?
-					return arrive(steering, arriveTargetPosition);
+					// we know face only adds angular, so we will reuse steering here
+					face.calculateSteering(steering);
+					// we need to store it, as arrive will override it
+					float angular = steering.angular;
+					arrive(steering, arriveTargetPosition);
+					steering.angular = angular;
+					return steering;
 				} else {
 					override = false;
 				}
@@ -1056,9 +1131,19 @@ public class Agents extends IteratingInputSystem {
 			return this;
 		}
 
+		public PriorityDoorArrive setFaceDecelerationRadius (float decelerationRadius) {
+			face.setDecelerationRadius(decelerationRadius);
+			return this;
+		}
+
 		@Override
 		public PriorityDoorArrive setTimeToTarget (float timeToTarget) {
 			this.timeToTarget = timeToTarget;
+			return this;
+		}
+
+		public PriorityDoorArrive setFaceTimeToTarget (float timeToTarget) {
+			face.setTimeToTarget(timeToTarget);
 			return this;
 		}
 
@@ -1072,6 +1157,10 @@ public class Agents extends IteratingInputSystem {
 
 		public void update (Path<Vector2, LinePath.LinePathParam> path, Pathfinding.NodePath nodePath) {
 			setPath(path);
+		}
+
+		public Face<Vector2> setAlignTolerance (float alignTolerance) {
+			return face.setAlignTolerance(alignTolerance);
 		}
 	}
 
